@@ -1,0 +1,4 @@
+Header header
+bool reference_set
+homog_track/HomogMarker current_points
+homog_track/HomogMarker reference_points

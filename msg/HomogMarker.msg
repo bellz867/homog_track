@@ -1,0 +1,5 @@
+Header header
+geometry_msgs/Point32 red_circle
+geometry_msgs/Point32 green_circle
+geometry_msgs/Point32 cyan_circle
+geometry_msgs/Point32 purple_circle

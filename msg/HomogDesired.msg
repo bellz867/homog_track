@@ -1,0 +1,10 @@
+Header header
+bool updating_desired
+geometry_msgs/Pose pose
+geometry_msgs/Point red_circle
+geometry_msgs/Point green_circle
+geometry_msgs/Point cyan_circle
+geometry_msgs/Point purple_circle
+std_msgs/Float64 height
+geometry_msgs/Vector3 omega_cd
+geometry_msgs/Vector3 v_cd
