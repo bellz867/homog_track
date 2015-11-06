@@ -64,10 +64,14 @@ add_executable(decomp_node src/homog_decompose_2.cpp)
 target_link_libraries(decomp_node ${catkin_LIBRARIES})
 add_dependencies(decomp_node ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 
-add_executable(desired_camera_node src/camera_desired_3.cpp)
+add_executable(desired_camera_node src/camera_desired_4.cpp)
 target_link_libraries(desired_camera_node ${catkin_LIBRARIES})
 add_dependencies(desired_camera_node ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 
 add_executable(quad_controller_node src/quad_controller_3.cpp)
 target_link_libraries(quad_controller_node ${catkin_LIBRARIES})
 add_dependencies(quad_controller_node ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
+
+add_executable(simulator_node src/simulated_track_1.cpp)
+target_link_libraries(simulator_node ${catkin_LIBRARIES})
+add_dependencies(simulator_node ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})

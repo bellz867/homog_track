@@ -5,7 +5,7 @@
 
 // ros and opencv includes for using opencv and ros
 #include <ros/ros.h>
-#include <geometry_msgs/Point32.h>
+#include <geometry_msgs/Point.h>
 #include <image_transport/image_transport.h>
 #include <cv_bridge/cv_bridge.h>
 #include <sensor_msgs/image_encodings.h>
@@ -100,29 +100,29 @@ class ImageConverter
 		
 		/********** End Topic Declarations **********/
 		
-		// tf for the world, reference, and current camera
-		tf::Transform world_to_reference;
-		tf::Transform reference_to_current;
+		// transform for the reference wrt world and transform for current image wrt reference
+		tf::Transform reference_wrt_world;
+		tf::Transform current_wrt_reference;
 		
 		
 		/********** Begin Point Declarations **********/
 		// the four points for the circles
-		geometry_msgs::Point32 red_circle_p;
-		geometry_msgs::Point32 green_circle_p;
-		geometry_msgs::Point32 cyan_circle_p;
-		geometry_msgs::Point32 purple_circle_p;
+		geometry_msgs::Point red_circle_p;
+		geometry_msgs::Point green_circle_p;
+		geometry_msgs::Point cyan_circle_p;
+		geometry_msgs::Point purple_circle_p;
 		
 		// the four points for the circles currently
-		geometry_msgs::Point32 red_circle_p_curr;
-		geometry_msgs::Point32 green_circle_p_curr;
-		geometry_msgs::Point32 cyan_circle_p_curr;
-		geometry_msgs::Point32 purple_circle_p_curr;
+		geometry_msgs::Point red_circle_p_curr;
+		geometry_msgs::Point green_circle_p_curr;
+		geometry_msgs::Point cyan_circle_p_curr;
+		geometry_msgs::Point purple_circle_p_curr;
 		
 		// the four points for the circles last time
-		geometry_msgs::Point32 red_circle_p_last;
-		geometry_msgs::Point32 green_circle_p_last;
-		geometry_msgs::Point32 cyan_circle_p_last;
-		geometry_msgs::Point32 purple_circle_p_last;
+		geometry_msgs::Point red_circle_p_last;
+		geometry_msgs::Point green_circle_p_last;
+		geometry_msgs::Point cyan_circle_p_last;
+		geometry_msgs::Point purple_circle_p_last;
 		
 		// tuning gain for the low pass
 		float low_pass_gain = 0.75;
@@ -131,11 +131,12 @@ class ImageConverter
 		bool first_run = false;
 		
 		// constant circles for reference
-		geometry_msgs::Point32 red_circle_const;
-		geometry_msgs::Point32 green_circle_const;
-		geometry_msgs::Point32 cyan_circle_const;
-		geometry_msgs::Point32 purple_circle_const;
+		geometry_msgs::Point red_circle_const;
+		geometry_msgs::Point green_circle_const;
+		geometry_msgs::Point cyan_circle_const;
+		geometry_msgs::Point purple_circle_const;
 		
+		// positions of the feature points wrt virtual reference image
 		// d*           = 1 m
 		// red:   (x,y) = (-0.05, -0.05) m
 		// green: (x,y) = ( 0.05, -0.05) m
@@ -145,7 +146,7 @@ class ImageConverter
 		// if the camera reference is directly centered as defined by these points then 
 		// n*           = [0,0,1]^T
 		
-		// also the four points normalized will be
+		// the four points normalized will be
 		// m*n_red      = [-0.05, -0.05, 1]^T
 		// m*n_green    = [ 0.05, -0.05, 1]^T
 		// m*n_cyan     = [ 0.05,  0.05, 1]^T
@@ -178,36 +179,36 @@ class ImageConverter
 		cv::Mat pc_ref;
 		cv::Mat pp_ref;
 		
-		// rotation and translation from reference to the desired virtual camera
-		cv::Mat vir_R;
-		tf::Matrix3x3 vir_R_3x3;
-		tf::Quaternion vir_Q;
-		cv::Mat vir_T;
+		// rotation and translation of virtual current image wrt reference
+		cv::Mat vir_R_cf;
+		tf::Matrix3x3 vir_R_cf_tf;
+		tf::Quaternion vir_Q_cf_tf;
+		cv::Mat vir_P_cf;
 		cv::Mat H;
 		cv::Mat G;
 		cv::Mat n_ref;
 		double d_ref;
-		std::vector<cv::Point2f> curr_points_p;
-		std::vector<cv::Point2f> ref_points_p;
+		std::vector<cv::Point2d> curr_points_p;
+		std::vector<cv::Point2d> ref_points_p;
 		cv::Mat G_fH;
 		
-		// real coordinate values for a fixed virtual camera at some location
-		cv::Mat mr_vir_bar;
-		cv::Mat mg_vir_bar;
-		cv::Mat mc_vir_bar;
-		cv::Mat mp_vir_bar;
+		// real coordinate values for the virtual camera
+		cv::Mat vir_mr_bar;
+		cv::Mat vir_mg_bar;
+		cv::Mat vir_mc_bar;
+		cv::Mat vir_mp_bar;
 		
 		// normalized
-		cv::Mat mr_vir_norm;
-		cv::Mat mg_vir_norm;
-		cv::Mat mc_vir_norm;
-		cv::Mat mp_vir_norm;
+		cv::Mat vir_mr_norm;
+		cv::Mat vir_mg_norm;
+		cv::Mat vir_mc_norm;
+		cv::Mat vir_mp_norm;
 		
 		// as pixels
-		cv::Mat pr_vir;
-		cv::Mat pg_vir;
-		cv::Mat pc_vir;
-		cv::Mat pp_vir;
+		cv::Mat vir_pr;
+		cv::Mat vir_pg;
+		cv::Mat vir_pc;
+		cv::Mat vir_pp;
 		
 		// tells if want to use the virtual reference
 		bool using_virtual_reference = false;
@@ -216,9 +217,9 @@ class ImageConverter
 		ros::Time last_virtual_update_time;
 		
 		// holds the current yaw angle
-		double virtual_yaw = 0;
-		double virtual_roll = 0;
-		double virtual_pitch = 0;
+		double vir_yaw = M_PIl/2;
+		double vir_roll = 0;
+		double vir_pitch = 0;
 		
 		// tells the reference has been set
 		bool reference_set;
@@ -533,193 +534,113 @@ class ImageConverter
 			homog_circles_ref_const.purple_circle.y = pp_ref.at<double>(1,0);
 			homog_circles_ref_const.purple_circle.z = pp_ref.at<double>(2,0);
 			
-			/********** real marker values  for a virtual camera  **********/
-			///////////// rotation and translation from desired to the reference virtual camera /////////
-			vir_R = cv::Mat::zeros(3,3,CV_64F);
+			/********** marker values for a virtual camera  **********/
+			///////////// rotation and translation of virtual camera wrt virtual reference camera /////////
+			vir_R_cf = cv::Mat::zeros(3,3,CV_64F);
 			
 			// initialize the transforms
-			tf::Matrix3x3 temp_rotation3x3;
+			tf::Matrix3x3 vir_R_cf_tf_temp;
 			
-			double yaw_init = 3*M_PIl/2;
+			// angle of the virtual image wrt virtual reference image
+			double yaw_init = M_PIl/2;
 			double pitch_init = 0;
 			double roll_init = 0;
 			
-			virtual_yaw = yaw_init;
-			virtual_pitch = pitch_init;
-			virtual_roll = roll_init;
+			vir_yaw = yaw_init;
+			vir_pitch = pitch_init;
+			vir_roll = roll_init;
 			
-			temp_rotation3x3.setEulerYPR(yaw_init,pitch_init,roll_init);
-
-			vir_R.at<double>(0,0) = temp_rotation3x3[0][0];
-			vir_R.at<double>(1,0) = temp_rotation3x3[1][0];
-			vir_R.at<double>(2,0) = temp_rotation3x3[2][0];
-			vir_R.at<double>(0,1) = temp_rotation3x3[0][1];
-			vir_R.at<double>(1,1) = temp_rotation3x3[1][1];
-			vir_R.at<double>(2,1) = temp_rotation3x3[2][1];
-			vir_R.at<double>(0,2) = temp_rotation3x3[0][2];
-			vir_R.at<double>(1,2) = temp_rotation3x3[1][2];
-			vir_R.at<double>(2,2) = temp_rotation3x3[2][2];
+			// setting the temp
+			vir_R_cf_tf_temp.setEulerYPR(yaw_init,pitch_init,roll_init);
 			
-			vir_T = cv::Mat::zeros(3,1,CV_64F);
-			///////////// rotation and translation from desired to the reference virtual camera /////////
-			vir_T.at<double>(0,0) = -0.5;
-			vir_T.at<double>(1,0) = 0.0;
-			vir_T.at<double>(2,0) = 2;
-			//vir_T.at<double>(0,0) = 0;
-			//vir_T.at<double>(1,0) = 0;
-			//vir_T.at<double>(2,0) = 0;
+			// rotation if the virtual camera wrt the virtual reference
+			vir_R_cf.at<double>(0,0) = vir_R_cf_tf_temp[0][0];
+			vir_R_cf.at<double>(1,0) = vir_R_cf_tf_temp[1][0];
+			vir_R_cf.at<double>(2,0) = vir_R_cf_tf_temp[2][0];
+			vir_R_cf.at<double>(0,1) = vir_R_cf_tf_temp[0][1];
+			vir_R_cf.at<double>(1,1) = vir_R_cf_tf_temp[1][1];
+			vir_R_cf.at<double>(2,1) = vir_R_cf_tf_temp[2][1];
+			vir_R_cf.at<double>(0,2) = vir_R_cf_tf_temp[0][2];
+			vir_R_cf.at<double>(1,2) = vir_R_cf_tf_temp[1][2];
+			vir_R_cf.at<double>(2,2) = vir_R_cf_tf_temp[2][2];
+			
+			vir_P_cf = cv::Mat::zeros(3,1,CV_64F);
+			// translation of virtual current image wrt the virtual reference camera /////////
+			vir_P_cf.at<double>(0,0) = -1;
+			vir_P_cf.at<double>(1,0) = -1;
+			vir_P_cf.at<double>(2,0) = -6;
+			//vir_P_cf.at<double>(0,0) = 0;
+			//vir_P_cf.at<double>(1,0) = 0;
+			//vir_P_cf.at<double>(2,0) = 0;
 			using_virtual_reference = true;
 			
+			// new position is vir_mi_bar = -1*vir_R_cf.transpose()*vir_P_cf + vir_R_cf.transpose()*mi_ref_bar
 			
-			// new position is mi_vir_bar = vir_T + vir_R*mi_ref_bar
+			// position of the feature points for wrt the virtual camera
+			vir_mr_bar = cv::Mat::zeros(3,1,CV_64F);
+			vir_mg_bar = cv::Mat::zeros(3,1,CV_64F);
+			vir_mc_bar = cv::Mat::zeros(3,1,CV_64F);
+			vir_mp_bar = cv::Mat::zeros(3,1,CV_64F);
 			
-			// real coordinate values for the circles in the virtual
-			mr_vir_bar = cv::Mat::zeros(3,1,CV_64F);
-			mg_vir_bar = cv::Mat::zeros(3,1,CV_64F);
-			mc_vir_bar = cv::Mat::zeros(3,1,CV_64F);
-			mp_vir_bar = cv::Mat::zeros(3,1,CV_64F);
-			
-			// rotating and translating the reference to some pose
-			mr_vir_bar = vir_T + vir_R*mr_ref_bar;
-			mg_vir_bar = vir_T + vir_R*mg_ref_bar;
-			mc_vir_bar = vir_T + vir_R*mc_ref_bar;
-			mp_vir_bar = vir_T + vir_R*mp_ref_bar;
+			// getting the position of the feature points wrt the virtual camera
+			vir_mr_bar = -1*((vir_R_cf.t())*vir_P_cf) + (vir_R_cf.t())*mr_ref_bar;
+			vir_mg_bar = -1*((vir_R_cf.t())*vir_P_cf) + (vir_R_cf.t())*mg_ref_bar;
+			vir_mc_bar = -1*((vir_R_cf.t())*vir_P_cf) + (vir_R_cf.t())*mc_ref_bar;
+			vir_mp_bar = -1*((vir_R_cf.t())*vir_P_cf) + (vir_R_cf.t())*mp_ref_bar;
 			
 			std::cout << "reference red:\n" << mr_ref_bar << std::endl;
 			std::cout << "reference green:\n" << mg_ref_bar << std::endl;
 			std::cout << "reference cyan:\n" << mc_ref_bar << std::endl;
 			std::cout << "reference purple:\n" << mp_ref_bar << std::endl;
 			
-			std::cout << "virtual translation:\n" << vir_T << std::endl;
-			std::cout << "virtual rotation:\n" << vir_R << std::endl;
-			std::cout << "virtual red bar:\n" << mr_vir_bar << std::endl;
-			std::cout << "virtual green bar:\n" << mg_vir_bar << std::endl;
-			std::cout << "virtual cyan bar:\n" << mc_vir_bar << std::endl;
-			std::cout << "virtual purple bar:\n" << mp_vir_bar << std::endl;
+			std::cout << "position of camera wrt reference:\n" << vir_P_cf << std::endl;
+			std::cout << "rotation of camera wrt reference:\n" << vir_R_cf << std::endl;
+			std::cout << "camera red bar:\n" << vir_mr_bar << std::endl;
+			std::cout << "camera green bar:\n" << vir_mg_bar << std::endl;
+			std::cout << "camera cyan bar:\n" << vir_mc_bar << std::endl;
+			std::cout << "camera purple bar:\n" << vir_mp_bar << std::endl;
 			
 			// normalizing
-			mr_vir_norm = (1.0/mr_vir_bar.at<double>(2,0))*mr_vir_bar;
-			mg_vir_norm = (1.0/mg_vir_bar.at<double>(2,0))*mg_vir_bar;
-			mc_vir_norm = (1.0/mc_vir_bar.at<double>(2,0))*mc_vir_bar;
-			mp_vir_norm = (1.0/mp_vir_bar.at<double>(2,0))*mp_vir_bar;
+			vir_mr_norm = (1.0/vir_mr_bar.at<double>(2,0))*vir_mr_bar;
+			vir_mg_norm = (1.0/vir_mg_bar.at<double>(2,0))*vir_mg_bar;
+			vir_mc_norm = (1.0/vir_mc_bar.at<double>(2,0))*vir_mc_bar;
+			vir_mp_norm = (1.0/vir_mp_bar.at<double>(2,0))*vir_mp_bar;
 			
-			std::cout << "virtual red norm:\n" << mr_vir_norm << std::endl;
-			std::cout << "virtual green norm:\n" << mg_vir_norm << std::endl;
-			std::cout << "virtual cyan norm:\n" << mc_vir_norm << std::endl;
-			std::cout << "virtual purple norm:\n" << mp_vir_norm << std::endl;
+			std::cout << "virtual red norm:\n" << vir_mr_norm << std::endl;
+			std::cout << "virtual green norm:\n" << vir_mg_norm << std::endl;
+			std::cout << "virtual cyan norm:\n" << vir_mc_norm << std::endl;
+			std::cout << "virtual purple norm:\n" << vir_mp_norm << std::endl;
 			
 			// as pixels
-			pr_vir = K*mr_vir_norm;
-			pg_vir = K*mg_vir_norm;
-			pc_vir = K*mc_vir_norm;
-			pp_vir = K*mp_vir_norm;
+			vir_pr = K*vir_mr_norm;
+			vir_pg = K*vir_mg_norm;
+			vir_pc = K*vir_mc_norm;
+			vir_pp = K*vir_mp_norm;
 			
-			std::cout << "virtual red pixels:\n" << pr_vir << std::endl;
-			std::cout << "virtual green pixels:\n" << pg_vir << std::endl;
-			std::cout << "virtual cyan pixels:\n" << pc_vir << std::endl;
-			std::cout << "virtual purple pixels:\n" << pp_vir << std::endl;
+			std::cout << "virtual red pixels:\n" << vir_pr << std::endl;
+			std::cout << "virtual green pixels:\n" << vir_pg << std::endl;
+			std::cout << "virtual cyan pixels:\n" << vir_pc << std::endl;
+			std::cout << "virtual purple pixels:\n" << vir_pp << std::endl;
 			
 			// red
-			homog_circles_virtual.red_circle.x = pr_vir.at<double>(0,0);
-			homog_circles_virtual.red_circle.y = pr_vir.at<double>(1,0);
-			homog_circles_virtual.red_circle.z = pr_vir.at<double>(2,0);
+			homog_circles_virtual.red_circle.x = vir_pr.at<double>(0,0);
+			homog_circles_virtual.red_circle.y = vir_pr.at<double>(1,0);
+			homog_circles_virtual.red_circle.z = vir_pr.at<double>(2,0);
 			
 			// green
-			homog_circles_virtual.green_circle.x = pg_vir.at<double>(0,0);
-			homog_circles_virtual.green_circle.y = pg_vir.at<double>(1,0);
-			homog_circles_virtual.green_circle.z = pg_vir.at<double>(2,0);
+			homog_circles_virtual.green_circle.x = vir_pg.at<double>(0,0);
+			homog_circles_virtual.green_circle.y = vir_pg.at<double>(1,0);
+			homog_circles_virtual.green_circle.z = vir_pg.at<double>(2,0);
 			
 			// cyan
-			homog_circles_virtual.cyan_circle.x = pc_vir.at<double>(0,0);
-			homog_circles_virtual.cyan_circle.y = pc_vir.at<double>(1,0);
-			homog_circles_virtual.cyan_circle.z = pc_vir.at<double>(2,0);
+			homog_circles_virtual.cyan_circle.x = vir_pc.at<double>(0,0);
+			homog_circles_virtual.cyan_circle.y = vir_pc.at<double>(1,0);
+			homog_circles_virtual.cyan_circle.z = vir_pc.at<double>(2,0);
 			
 			// purple
-			homog_circles_virtual.purple_circle.x = pp_vir.at<double>(0,0);
-			homog_circles_virtual.purple_circle.y = pp_vir.at<double>(1,0);
-			homog_circles_virtual.purple_circle.z = pp_vir.at<double>(2,0);
-			
-			//// calculating what the euclidean homography is
-			//n_ref = cv::Mat::zeros(3,1,CV_64F);
-			//n_ref.at<double>(2,0) = 1;
-			//std::cout << "n_ref:\n" << n_ref << std::endl;
-			
-			//d_ref = (n_ref).dot(mr_ref_bar);
-			//std::cout << "d_ref:\t" << d_ref << std::endl;
-			
-			//H = vir_R + ((1.0/d_ref)*vir_T)*(n_ref.t());
-			//std::cout << "euclidean homography:\n" << H << std::endl;
-			
-			//// finding the alphas
-			//std::cout << "red alpha x:\t" << mr_vir_norm.at<double>(0,0)/((H.row(0)).dot(mr_ref_norm.t())) << std::endl;
-			//std::cout << "red alpha y:\t" << mr_vir_norm.at<double>(1,0)/((H.row(1)).dot(mr_ref_norm.t())) << std::endl;
-			//std::cout << "red alpha z:\t" << mr_vir_norm.at<double>(2,0)/((H.row(2)).dot(mr_ref_norm.t())) << std::endl;
-			
-			//std::cout << "green alpha x:\t" << mg_vir_norm.at<double>(0,0)/((H.row(0)).dot(mg_ref_norm.t())) << std::endl;
-			//std::cout << "green alpha y:\t" << mg_vir_norm.at<double>(1,0)/((H.row(1)).dot(mg_ref_norm.t())) << std::endl;
-			//std::cout << "green alpha z:\t" << mg_vir_norm.at<double>(2,0)/((H.row(2)).dot(mg_ref_norm.t())) << std::endl;
-			
-			//std::cout << "cyan alpha x:\t" << mc_vir_norm.at<double>(0,0)/((H.row(0)).dot(mc_ref_norm.t())) << std::endl;
-			//std::cout << "cyan alpha y:\t" << mc_vir_norm.at<double>(1,0)/((H.row(1)).dot(mc_ref_norm.t())) << std::endl;
-			//std::cout << "cyan alpha z:\t" << mc_vir_norm.at<double>(2,0)/((H.row(2)).dot(mc_ref_norm.t())) << std::endl;
-			
-			//std::cout << "purple alpha x:\t" << mp_vir_norm.at<double>(0,0)/((H.row(0)).dot(mp_ref_norm.t())) << std::endl;
-			//std::cout << "purple alpha y:\t" << mp_vir_norm.at<double>(1,0)/((H.row(1)).dot(mp_ref_norm.t())) << std::endl;
-			//std::cout << "purple alpha z:\t" << mp_vir_norm.at<double>(2,0)/((H.row(2)).dot(mp_ref_norm.t())) << std::endl;
-			
-			//G = K*H*K.inv(cv::DECOMP_LU);
-			
-			//std::cout << "projective homography:\n" << G << std::endl;
-			
-			//// finding the alphas
-			//std::cout << "red alpha x:\t" << pr_vir.at<double>(0,0)/((G.row(0)).dot(pr_ref.t())) << std::endl;
-			//std::cout << "red alpha y:\t" << pr_vir.at<double>(1,0)/((G.row(1)).dot(pr_ref.t())) << std::endl;
-			//std::cout << "red alpha z:\t" << pr_vir.at<double>(2,0)/((G.row(2)).dot(pr_ref.t())) << std::endl;
-			
-			//std::cout << "green alpha x:\t" << pg_vir.at<double>(0,0)/((G.row(0)).dot(pg_ref.t())) << std::endl;
-			//std::cout << "green alpha y:\t" << pg_vir.at<double>(1,0)/((G.row(1)).dot(pg_ref.t())) << std::endl;
-			//std::cout << "green alpha z:\t" << pg_vir.at<double>(2,0)/((G.row(2)).dot(pg_ref.t())) << std::endl;
-			
-			//std::cout << "cyan alpha x:\t" << pc_vir.at<double>(0,0)/((G.row(0)).dot(pc_ref.t())) << std::endl;
-			//std::cout << "cyan alpha y:\t" << pc_vir.at<double>(1,0)/((G.row(1)).dot(pc_ref.t())) << std::endl;
-			//std::cout << "cyan alpha z:\t" << pc_vir.at<double>(2,0)/((G.row(2)).dot(pc_ref.t())) << std::endl;
-			
-			//std::cout << "purple alpha x:\t" << pp_vir.at<double>(0,0)/((G.row(0)).dot(pp_ref.t())) << std::endl;
-			//std::cout << "purple alpha y:\t" << pp_vir.at<double>(1,0)/((G.row(1)).dot(pp_ref.t())) << std::endl;
-			//std::cout << "purple alpha z:\t" << pp_vir.at<double>(2,0)/((G.row(2)).dot(pp_ref.t())) << std::endl;
-			
-			//// finding the projective homography from findHomography
-			//curr_points_p.push_back(cv::Point2f(pr_vir.at<double>(0,0),pr_vir.at<double>(1,0)));
-			//curr_points_p.push_back(cv::Point2f(pg_vir.at<double>(0,0),pg_vir.at<double>(1,0)));
-			//curr_points_p.push_back(cv::Point2f(pc_vir.at<double>(0,0),pc_vir.at<double>(1,0)));
-			//curr_points_p.push_back(cv::Point2f(pp_vir.at<double>(0,0),pp_vir.at<double>(1,0)));
-			
-			//ref_points_p.push_back(cv::Point2f(pr_ref.at<double>(0,0),pr_ref.at<double>(1,0)));
-			//ref_points_p.push_back(cv::Point2f(pg_ref.at<double>(0,0),pg_ref.at<double>(1,0)));
-			//ref_points_p.push_back(cv::Point2f(pc_ref.at<double>(0,0),pc_ref.at<double>(1,0)));
-			//ref_points_p.push_back(cv::Point2f(pp_ref.at<double>(0,0),pp_ref.at<double>(1,0)));
-			
-			//G_fH = cv::findHomography(ref_points_p,curr_points_p,0);
-			
-			//std::cout << "projective from find homography:\n" << G_fH << std::endl;
-			
-			//// finding the alphas
-			//std::cout << "red alpha x:\t" << pr_vir.at<double>(0,0)/((G_fH.row(0)).dot(pr_ref.t())) << std::endl;
-			//std::cout << "red alpha y:\t" << pr_vir.at<double>(1,0)/((G_fH.row(1)).dot(pr_ref.t())) << std::endl;
-			//std::cout << "red alpha z:\t" << pr_vir.at<double>(2,0)/((G_fH.row(2)).dot(pr_ref.t())) << std::endl;
-			
-			//std::cout << "green alpha x:\t" << pg_vir.at<double>(0,0)/((G_fH.row(0)).dot(pg_ref.t())) << std::endl;
-			//std::cout << "green alpha y:\t" << pg_vir.at<double>(1,0)/((G_fH.row(1)).dot(pg_ref.t())) << std::endl;
-			//std::cout << "green alpha z:\t" << pg_vir.at<double>(2,0)/((G_fH.row(2)).dot(pg_ref.t())) << std::endl;
-			
-			//std::cout << "cyan alpha x:\t" << pc_vir.at<double>(0,0)/((G_fH.row(0)).dot(pc_ref.t())) << std::endl;
-			//std::cout << "cyan alpha y:\t" << pc_vir.at<double>(1,0)/((G_fH.row(1)).dot(pc_ref.t())) << std::endl;
-			//std::cout << "cyan alpha z:\t" << pc_vir.at<double>(2,0)/((G_fH.row(2)).dot(pc_ref.t())) << std::endl;
-			
-			//std::cout << "purple alpha x:\t" << pp_vir.at<double>(0,0)/((G_fH.row(0)).dot(pp_ref.t())) << std::endl;
-			//std::cout << "purple alpha y:\t" << pp_vir.at<double>(1,0)/((G_fH.row(1)).dot(pp_ref.t())) << std::endl;
-			//std::cout << "purple alpha z:\t" << pp_vir.at<double>(2,0)/((G_fH.row(2)).dot(pp_ref.t())) << std::endl;
-			
+			homog_circles_virtual.purple_circle.x = vir_pp.at<double>(0,0);
+			homog_circles_virtual.purple_circle.y = vir_pp.at<double>(1,0);
+			homog_circles_virtual.purple_circle.z = vir_pp.at<double>(2,0);	
 			
 			// distortion matrix for the ardrone
 			dC.push_back(-0.5122398601387984);
@@ -728,32 +649,36 @@ class ImageConverter
 			dC.push_back(0.002480111502028633);
 			dC.push_back(0.0);
 			
-			std::cout << "dC value: ";
-			for (float ii : dC)
-			{
-				std::cout << ii << " ";
-			}
-			std::cout << std::endl;
+			//std::cout << "dC value: ";
+			//for (float ii : dC)
+			//{
+				//std::cout << ii << " ";
+			//}
+			//std::cout << std::endl;
 			
-			// initialize the transforms
-			world_to_reference.setOrigin(tf::Vector3(0,0,z_ref));
-			tf::Quaternion q_temp;
-			q_temp.setEuler(0.0,M_PIl,-1.0*M_PIl/2.0);
-			world_to_reference.setRotation(q_temp);
+			// initialize the transform of the reference wrt world
+			reference_wrt_world.setOrigin(tf::Vector3(0,0,z_ref));
+			// rotation of reference wrt world
+			tf::Matrix3x3 R_rw(0,1,0,
+							   1,0,0,
+							   0,0,-1);
+			tf::Quaternion Q_rw;
+			R_rw.getRotation(Q_rw);
+			reference_wrt_world.setRotation(Q_rw);
 			
-			// initialize the virtual transform
-			reference_to_current.setOrigin(tf::Vector3(vir_T.at<double>(0,0), vir_T.at<double>(0,1), vir_T.at<double>(0,2)));
-			vir_R_3x3[0][0] = vir_R.at<double>(0,0);
-			vir_R_3x3[0][1] = vir_R.at<double>(0,1);
-			vir_R_3x3[0][2] = vir_R.at<double>(0,2);
-			vir_R_3x3[1][0] = vir_R.at<double>(1,0);
-			vir_R_3x3[1][1] = vir_R.at<double>(1,1);
-			vir_R_3x3[1][2] = vir_R.at<double>(1,2);
-			vir_R_3x3[2][0] = vir_R.at<double>(2,0);
-			vir_R_3x3[2][1] = vir_R.at<double>(2,1);
-			vir_R_3x3[2][2] = vir_R.at<double>(2,2);
-			vir_R_3x3.getRotation(vir_Q);
-			reference_to_current.setRotation(vir_Q);
+			// initialize the transform of the virtual camera wrt reference
+			current_wrt_reference.setOrigin(tf::Vector3(vir_P_cf.at<double>(0,0), vir_P_cf.at<double>(0,1), vir_P_cf.at<double>(0,2)));
+			vir_R_cf_tf[0][0] = vir_R_cf.at<double>(0,0);
+			vir_R_cf_tf[0][1] = vir_R_cf.at<double>(0,1);
+			vir_R_cf_tf[0][2] = vir_R_cf.at<double>(0,2);
+			vir_R_cf_tf[1][0] = vir_R_cf.at<double>(1,0);
+			vir_R_cf_tf[1][1] = vir_R_cf.at<double>(1,1);
+			vir_R_cf_tf[1][2] = vir_R_cf.at<double>(1,2);
+			vir_R_cf_tf[2][0] = vir_R_cf.at<double>(2,0);
+			vir_R_cf_tf[2][1] = vir_R_cf.at<double>(2,1);
+			vir_R_cf_tf[2][2] = vir_R_cf.at<double>(2,2);
+			vir_R_cf_tf.getRotation(vir_Q_cf_tf);
+			current_wrt_reference.setRotation(vir_Q_cf_tf);
 			
 		}
 		
@@ -799,15 +724,13 @@ class ImageConverter
 			return true;
 		}
 		
-		// get the depth estimate
-		
 		// update the virtual camera
 		void virtual_camera_callback(const geometry_msgs::Twist& msg)
 		{
 			if (using_virtual_reference && reference_set)
 			{
 				// converting the command velocity to update the position
-				///////////// rotation and translation from desired to the reference virtual camera /////////
+				///////////// rotation and translation of virtual camera wrt virtual reference camera /////////
 				// update current time and get the time difference
 				double current_time = ros::Time::now().toSec();
 				double time_diff = current_time - last_virtual_update_time.toSec();
@@ -816,110 +739,114 @@ class ImageConverter
 				// The coordinate frame of the body of the quad relative to the camera is xb = -yc, yb = -xc, and zb = -zc
 				// angular zb is angular zc, that is angular zb is positive about zc, strange
 				
-				
 				// update the virtual rotation matrix
-				virtual_yaw = virtual_yaw + msg.angular.z*time_diff;
+				vir_yaw += msg.angular.z*time_diff;
 				
 				//virtual_theta = 0;
-				std::cout << "virtual yaw:\t" << virtual_yaw << std::endl;
+				std::cout << "virtual yaw:\t" << vir_yaw << std::endl;
 				
-				vir_R = cv::Mat::zeros(3,3,CV_64F);
-				vir_R.at<double>(0,0) = cos(virtual_yaw);
-				vir_R.at<double>(1,0) = sin(virtual_yaw);
-				vir_R.at<double>(0,1) = -1.0*sin(virtual_yaw);
-				vir_R.at<double>(1,1) = cos(virtual_yaw);
-				vir_R.at<double>(2,2) = 1.0;
-				std::cout << "virtual rotation:\n" << vir_R << std::endl;
+				vir_R_cf = cv::Mat::zeros(3,3,CV_64F);
+				vir_R_cf.at<double>(0,0) = std::cos(vir_yaw);
+				vir_R_cf.at<double>(1,0) = std::sin(vir_yaw);
+				vir_R_cf.at<double>(0,1) = -1.0*std::sin(vir_yaw);
+				vir_R_cf.at<double>(1,1) = std::cos(vir_yaw);
+				vir_R_cf.at<double>(2,2) = 1.0;
+				std::cout << "rotation of virtual camera wrt reference:\n" << vir_R_cf << std::endl;
 								
-				// update the virtual x, y, z
-				//vir_T.at<double>(0,0) = -0.5;
-				//vir_T.at<double>(1,0) = 0;
-				//vir_T.at<double>(2,0) = 0;
-				vir_T.at<double>(0,0) = vir_T.at<double>(0,0) + msg.linear.y*time_diff;
-				vir_T.at<double>(1,0) = vir_T.at<double>(1,0) + msg.linear.x*time_diff;
-				vir_T.at<double>(2,0) = vir_T.at<double>(2,0) + msg.linear.z*time_diff;
-				std::cout << "virtual translation:\n" << vir_T << std::endl;
+				// update the position of the virtual camera wrt the reference, negated because the velocity command was negated for the ardrone
+				//vir_P_cf.at<double>(0,0) = 0.5;
+				//vir_P_cf.at<double>(1,0) = 0;
+				//vir_P_cf.at<double>(2,0) = 0;
+				cv::Mat temp_vc_cf = cv::Mat::zeros(3,1,CV_64F);
+				temp_vc_cf.at<double>(0,0) = msg.linear.x;
+				temp_vc_cf.at<double>(1,0) = msg.linear.y;
+				temp_vc_cf.at<double>(2,0) = msg.linear.z;
 				
-				// update the transform
-				reference_to_current.setOrigin(tf::Vector3(vir_T.at<double>(0,0), vir_T.at<double>(0,1), vir_T.at<double>(0,2)));
-				vir_R_3x3[0][0] = vir_R.at<double>(0,0);
-				vir_R_3x3[0][1] = vir_R.at<double>(0,1);
-				vir_R_3x3[0][2] = vir_R.at<double>(0,2);
-				vir_R_3x3[1][0] = vir_R.at<double>(1,0);
-				vir_R_3x3[1][1] = vir_R.at<double>(1,1);
-				vir_R_3x3[1][2] = vir_R.at<double>(1,2);
-				vir_R_3x3[2][0] = vir_R.at<double>(2,0);
-				vir_R_3x3[2][1] = vir_R.at<double>(2,1);
-				vir_R_3x3[2][2] = vir_R.at<double>(2,2);
-				vir_R_3x3.getRotation(vir_Q);
-				reference_to_current.setRotation(vir_Q);
+				// output velocity from tracking message
+				vir_P_cf += (vir_R_cf*temp_vc_cf)*time_diff;
+				std::cout << "position of virtual camera wrt virtual reference:\n" << vir_P_cf << std::endl;
+				
+				// update the transform of the current virtual image wrt the reference image
+				current_wrt_reference.setOrigin(tf::Vector3(vir_P_cf.at<double>(0,0), vir_P_cf.at<double>(0,1), vir_P_cf.at<double>(0,2)));
+				vir_R_cf_tf[0][0] = vir_R_cf.at<double>(0,0);
+				vir_R_cf_tf[0][1] = vir_R_cf.at<double>(0,1);
+				vir_R_cf_tf[0][2] = vir_R_cf.at<double>(0,2);
+				vir_R_cf_tf[1][0] = vir_R_cf.at<double>(1,0);
+				vir_R_cf_tf[1][1] = vir_R_cf.at<double>(1,1);
+				vir_R_cf_tf[1][2] = vir_R_cf.at<double>(1,2);
+				vir_R_cf_tf[2][0] = vir_R_cf.at<double>(2,0);
+				vir_R_cf_tf[2][1] = vir_R_cf.at<double>(2,1);
+				vir_R_cf_tf[2][2] = vir_R_cf.at<double>(2,2);
+				vir_R_cf_tf.getRotation(vir_Q_cf_tf);
+				current_wrt_reference.setRotation(vir_Q_cf_tf);
 
-				// new position is mi_vir_bar = vir_T + vir_R*mi_ref_bar
-				// real coordinate values for the circles in the virtual
-				mr_vir_bar = cv::Mat::zeros(3,1,CV_64F);
-				mg_vir_bar = cv::Mat::zeros(3,1,CV_64F);
-				mc_vir_bar = cv::Mat::zeros(3,1,CV_64F);
-				mp_vir_bar = cv::Mat::zeros(3,1,CV_64F);
+				// new position is vir_mi_bar = -1*vir_R_cf.transpose()*vir_P_cf + vir_R_cf.transpose()*mi_ref_bar
+			
+				// position of the feature points for wrt the virtual camera
+				vir_mr_bar = cv::Mat::zeros(3,1,CV_64F);
+				vir_mg_bar = cv::Mat::zeros(3,1,CV_64F);
+				vir_mc_bar = cv::Mat::zeros(3,1,CV_64F);
+				vir_mp_bar = cv::Mat::zeros(3,1,CV_64F);
 				
-				// rotating and translating the reference to some pose
-				mr_vir_bar = vir_T + vir_R*mr_ref_bar;
-				mg_vir_bar = vir_T + vir_R*mg_ref_bar;
-				mc_vir_bar = vir_T + vir_R*mc_ref_bar;
-				mp_vir_bar = vir_T + vir_R*mp_ref_bar;
-				
+				// getting the position of the feature points wrt the virtual camera
+				vir_mr_bar = -1*((vir_R_cf.t())*vir_P_cf) + (vir_R_cf.t())*mr_ref_bar;
+				vir_mg_bar = -1*((vir_R_cf.t())*vir_P_cf) + (vir_R_cf.t())*mg_ref_bar;
+				vir_mc_bar = -1*((vir_R_cf.t())*vir_P_cf) + (vir_R_cf.t())*mc_ref_bar;
+				vir_mp_bar = -1*((vir_R_cf.t())*vir_P_cf) + (vir_R_cf.t())*mp_ref_bar;
+
 				//std::cout << "reference red:\n" << mr_ref_bar << std::endl;
 				//std::cout << "reference green:\n" << mg_ref_bar << std::endl;
 				//std::cout << "reference cyan:\n" << mc_ref_bar << std::endl;
 				//std::cout << "reference purple:\n" << mp_ref_bar << std::endl;
 				
-				//std::cout << "virtual translation:\n" << vir_T << std::endl;
-				//std::cout << "virtual rotation:\n" << vir_R << std::endl;
-				//std::cout << "virtual red bar:\n" << mr_vir_bar << std::endl;
-				//std::cout << "virtual green bar:\n" << mg_vir_bar << std::endl;
-				//std::cout << "virtual cyan bar:\n" << mc_vir_bar << std::endl;
-				//std::cout << "virtual purple bar:\n" << mp_vir_bar << std::endl;
+				//std::cout << "virtual translation:\n" << vir_P_cf << std::endl;
+				//std::cout << "virtual rotation:\n" << vir_R_cf << std::endl;
+				//std::cout << "virtual red bar:\n" << vir_mr_bar << std::endl;
+				//std::cout << "virtual green bar:\n" << vir_mg_bar << std::endl;
+				//std::cout << "virtual cyan bar:\n" << vir_mc_bar << std::endl;
+				//std::cout << "virtual purple bar:\n" << vir_mp_bar << std::endl;
 				
 				// normalizing
-				mr_vir_norm = (1.0/mr_vir_bar.at<double>(2,0))*mr_vir_bar;
-				mg_vir_norm = (1.0/mg_vir_bar.at<double>(2,0))*mg_vir_bar;
-				mc_vir_norm = (1.0/mc_vir_bar.at<double>(2,0))*mc_vir_bar;
-				mp_vir_norm = (1.0/mp_vir_bar.at<double>(2,0))*mp_vir_bar;
+				vir_mr_norm = (1.0/vir_mr_bar.at<double>(2,0))*vir_mr_bar;
+				vir_mg_norm = (1.0/vir_mg_bar.at<double>(2,0))*vir_mg_bar;
+				vir_mc_norm = (1.0/vir_mc_bar.at<double>(2,0))*vir_mc_bar;
+				vir_mp_norm = (1.0/vir_mp_bar.at<double>(2,0))*vir_mp_bar;
 				
-				//std::cout << "virtual red norm:\n" << mr_vir_norm << std::endl;
-				//std::cout << "virtual green norm:\n" << mg_vir_norm << std::endl;
-				//std::cout << "virtual cyan norm:\n" << mc_vir_norm << std::endl;
-				//std::cout << "virtual purple norm:\n" << mp_vir_norm << std::endl;
+				//std::cout << "virtual red norm:\n" << vir_mr_norm << std::endl;
+				//std::cout << "virtual green norm:\n" << vir_mg_norm << std::endl;
+				//std::cout << "virtual cyan norm:\n" << vir_mc_norm << std::endl;
+				//std::cout << "virtual purple norm:\n" << vir_mp_norm << std::endl;
 				
 				// as pixels
-				pr_vir = K*mr_vir_norm;
-				pg_vir = K*mg_vir_norm;
-				pc_vir = K*mc_vir_norm;
-				pp_vir = K*mp_vir_norm;
+				vir_pr = K*vir_mr_norm;
+				vir_pg = K*vir_mg_norm;
+				vir_pc = K*vir_mc_norm;
+				vir_pp = K*vir_mp_norm;
 				
-				//std::cout << "virtual red pixels:\n" << pr_vir << std::endl;
-				//std::cout << "virtual green pixels:\n" << pg_vir << std::endl;
-				//std::cout << "virtual cyan pixels:\n" << pc_vir << std::endl;
-				//std::cout << "virtual purple pixels:\n" << pp_vir << std::endl;
+				//std::cout << "virtual red pixels:\n" << vir_pr << std::endl;
+				//std::cout << "virtual green pixels:\n" << vir_pg << std::endl;
+				//std::cout << "virtual cyan pixels:\n" << vir_pc << std::endl;
+				//std::cout << "virtual purple pixels:\n" << vir_pp << std::endl;
 				
 				// red
-				homog_circles_virtual.red_circle.x = pr_vir.at<double>(0,0);
-				homog_circles_virtual.red_circle.y = pr_vir.at<double>(1,0);
-				homog_circles_virtual.red_circle.z = pr_vir.at<double>(2,0);
+				homog_circles_virtual.red_circle.x = vir_pr.at<double>(0,0);
+				homog_circles_virtual.red_circle.y = vir_pr.at<double>(1,0);
+				homog_circles_virtual.red_circle.z = vir_pr.at<double>(2,0);
 				
 				// green
-				homog_circles_virtual.green_circle.x = pg_vir.at<double>(0,0);
-				homog_circles_virtual.green_circle.y = pg_vir.at<double>(1,0);
-				homog_circles_virtual.green_circle.z = pg_vir.at<double>(2,0);
+				homog_circles_virtual.green_circle.x = vir_pg.at<double>(0,0);
+				homog_circles_virtual.green_circle.y = vir_pg.at<double>(1,0);
+				homog_circles_virtual.green_circle.z = vir_pg.at<double>(2,0);
 				
 				// cyan
-				homog_circles_virtual.cyan_circle.x = pc_vir.at<double>(0,0);
-				homog_circles_virtual.cyan_circle.y = pc_vir.at<double>(1,0);
-				homog_circles_virtual.cyan_circle.z = pc_vir.at<double>(2,0);
+				homog_circles_virtual.cyan_circle.x = vir_pc.at<double>(0,0);
+				homog_circles_virtual.cyan_circle.y = vir_pc.at<double>(1,0);
+				homog_circles_virtual.cyan_circle.z = vir_pc.at<double>(2,0);
 				
 				// purple
-				homog_circles_virtual.purple_circle.x = pp_vir.at<double>(0,0);
-				homog_circles_virtual.purple_circle.y = pp_vir.at<double>(1,0);
-				homog_circles_virtual.purple_circle.z = pp_vir.at<double>(2,0);
+				homog_circles_virtual.purple_circle.x = vir_pp.at<double>(0,0);
+				homog_circles_virtual.purple_circle.y = vir_pp.at<double>(1,0);
+				homog_circles_virtual.purple_circle.z = vir_pp.at<double>(2,0);
 				
 				last_virtual_update_time = ros::Time::now();
 			}
@@ -1296,7 +1223,7 @@ int main(int argc, char** argv)
 
 	if (image_converter.using_virtual_reference)
 	{
-		ros::Rate loop_rate(100);
+		ros::Rate loop_rate(30);
 		while (ros::ok())
 		{
 			// giving the virtual circles to the output message
@@ -1310,12 +1237,12 @@ int main(int argc, char** argv)
 			// publish the circle points
 			image_converter.circle_pub.publish(image_converter.complete_msg);
 			
-			image_converter.br.sendTransform(tf::StampedTransform(image_converter.world_to_reference, image_converter.last_virtual_update_time
+			image_converter.br.sendTransform(tf::StampedTransform(image_converter.reference_wrt_world, image_converter.last_virtual_update_time
 											 ,"world", "reference_image"));
-			image_converter.br.sendTransform(tf::StampedTransform(image_converter.reference_to_current.inverse(), image_converter.last_virtual_update_time
+			image_converter.br.sendTransform(tf::StampedTransform(image_converter.current_wrt_reference, image_converter.last_virtual_update_time
 											 ,"reference_image","current_image"));
 			
-			//reference_to_current;
+			//current_wrt_reference;
 			//std::cout << "complete message\n" << image_converter.complete_msg << std::endl << std::endl;
 			ros::spinOnce();
 			loop_rate.sleep();

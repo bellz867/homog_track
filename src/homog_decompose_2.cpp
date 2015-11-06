@@ -32,7 +32,7 @@
 
 // ros and opencv includes for using opencv and ros
 #include <ros/ros.h>
-#include <geometry_msgs/Point32.h>
+#include <geometry_msgs/Point.h>
 #include <opencv2/opencv.hpp>
 #include <tf/transform_broadcaster.h>
 #include <homog_track/HomogMarker.h>
@@ -45,187 +45,70 @@
 class FindTransformation
 {
 	public:
-		// node handle
-		ros::NodeHandle nh;
-		
+		ros::NodeHandle nh;// node handle
 		/********** Begin Topic Declarations **********/		
-		// subscriber to the complete homography message containing both matrices
-		ros::Subscriber complete_message_sub;
-		
-		// publisher for the decomposed homography
-		ros::Publisher homog_decomp_pub;
-		
-		// broadcaster for the transform
-		tf::TransformBroadcaster tf_broad;
-		
-		// marker publisher
-		ros::Publisher marker_pub;
+		ros::Subscriber complete_message_sub;// subscriber to the complete homography message containing both matrices
+		ros::Publisher homog_decomp_pub;// publisher for the decomposed homography
+		tf::TransformBroadcaster tf_broad;// broadcaster for the transform
+		ros::Publisher marker_pub;// marker publisher
 		/********** End Topic Declarations **********/
 		
 		/********** Begin Point Declarations **********/		
-		// holds the current complete message
-		homog_track::HomogComplete complete_msg;
-		
-		// tells the reference has been set
-		bool reference_set;
-		
-		// current marker
-		homog_track::HomogMarker circles_curr;
-		
-		// reference marker
-		homog_track::HomogMarker circles_ref;
-		
-		// takes the current points and converts them for the homography
-		std::vector<cv::Point2f> curr_points_p;
-		
-		// takes the reference points and converts them for the homography
-		std::vector<cv::Point2f> ref_points_p;
-		
-		// the current points
-		cv::Point2f curr_red_p;
-		cv::Point2f curr_green_p;
-		cv::Point2f curr_cyan_p;
-		cv::Point2f curr_purple_p;
-		cv::Mat pr_m;
-		cv::Mat pg_m;
-		cv::Mat pc_m;
-		cv::Mat pp_m;
-		
-		cv::Mat mr_norm;
-		cv::Mat mg_norm;
-		cv::Mat mc_norm;
-		cv::Mat mp_norm;
-		
-		// holds the reference points
-		cv::Point2f ref_red_p;
-		cv::Point2f ref_green_p;
-		cv::Point2f ref_cyan_p;
-		cv::Point2f ref_purple_p;
-		cv::Mat pr_ref_m;
-		cv::Mat pg_ref_m;
-		cv::Mat pc_ref_m;
-		cv::Mat pp_ref_m;
-		
-		cv::Mat mr_ref_norm;
-		cv::Mat mg_ref_norm;
-		cv::Mat mc_ref_norm;
-		cv::Mat mp_ref_norm;
-		
-		// vector for the matrix of current points
-		std::vector<cv::Mat> curr_points_m;
-		
-		// vector for the matrix of reference points
-		std::vector<cv::Mat> ref_points_m;
-		
+		homog_track::HomogComplete complete_msg;// holds the current complete message
+		bool reference_set;// tells the reference has been set
+		homog_track::HomogMarker circles_curr, circles_ref;// current and reference marker
+		std::vector<cv::Point2d> curr_points_p, ref_points_p;// current and ref points and converts them for the homography
+		cv::Point2d curr_red_p, curr_green_p, curr_cyan_p, curr_purple_p;// current points
+		cv::Mat pr_m, pg_m, pc_m, pp_m;// current points as pixels
+		cv::Mat mr_norm, mg_norm, mc_norm, mp_norm;// current points normalized
+		cv::Point2d ref_red_p, ref_green_p, ref_cyan_p, ref_purple_p;// reference points
+		cv::Mat pr_ref_m, pg_ref_m, pc_ref_m, pp_ref_m; // reference points as pixels
+		cv::Mat mr_ref_norm, mg_ref_norm, mc_ref_norm, mp_ref_norm; // reference points normalized
+		std::vector<cv::Mat> curr_points_m, ref_points_m;// vector for the matrix of current points
 		/********** End Point Declarations **********/
 		
 		/********** Begin decomposition Declarations **********/
-		// the perspective homography matrix
-		cv::Mat G;
-		
-		// estimated homography matrix
-		cv::Mat H_hat;
-		
-		// scaled homography matrix
-		cv::Mat H;
-		
-		// svd of the perspective homography matrix
-		cv::SVD svd;
-		
-		// three values for the svd 
-		double svd_1;
-		double svd_2;
-		double svd_3;
-		std::vector<double> svds;
-		
-		// gamma term the estimated matrix is scaled by
-		double gamma_h;
-		
-		// the camera matrix
-		cv::Mat K;
-		
-		// successful decomposition
-		int successful_decomp;
-		
-		// the rotation matrices
-		std::vector<cv::Mat> R;
-		
-		// the translation vectors
-		std::vector<cv::Mat> T;
-		
-		// the normal vectors
-		std::vector<cv::Mat> n;
-		
-		// temp holder for scalar checking if a converted point is positive
-		cv::Mat temp_scalar;
-		
-		// array to hold the values of the all the positive definite check values
-		std::vector<double> scalar_value_check;
-		
-		// temporary solution iterators can read and write
-		std::vector<double>::iterator temp_solution_start;
-		std::vector<double>::iterator temp_solution_end;
-		std::vector<double> temp_solution;
-		bool all_positive;
+		cv::Mat G;// the perspective homography matrix
+		cv::Mat H_hat;// estimated homography matrix
+		cv::Mat H;// scaled homography matrix
+		cv::SVD svd;// svd of the perspective homography matrix
+		double svd_1, svd_2, svd_3; std::vector<double> svds; // three values for the svd 
+		double gamma_h;// gamma term the estimated matrix is scaled by
+		cv::Mat K;// the camera matrix
+		int successful_decomp;// successful decomposition
+		std::vector<cv::Mat> R, T, n;// the rotation, translation, and normal output
+		cv::Mat temp_scalar;// temp holder for scalar checking if a converted point is positive
+		std::vector<double> scalar_value_check;// array to hold the values of the all the positive definite check values
+		std::vector<double>::iterator temp_solution_start, temp_solution_end; std::vector<double> temp_solution;// temporary solution
+		bool all_positive;//indicates all temp values are positive
 		int current_temp_index;
-		
-		// first solution variables
-		std::vector<double>::iterator first_solution_start;
-		std::vector<double>::iterator first_solution_end;
-		std::vector<double> first_solution;
-		bool first_solution_found;
-		cv::Mat first_R;
-		cv::Mat first_T;
-		cv::Mat first_n;
-		
-		// second solution variables. there may not be a second solution
-		std::vector<double>::iterator second_solution_start;
-		std::vector<double>::iterator second_solution_end;
-		std::vector<double> second_solution;
-		bool second_solution_found;
-		cv::Mat second_R;
-		cv::Mat second_T;
-		cv::Mat second_n;
-		
-		// conversion variables for the most normal solution to publish as a pose message for current to fixed
+		std::vector<double>::iterator first_solution_start, first_solution_end; std::vector<double> first_solution;// first solution variables
+		bool first_solution_found;//indicates first solution found
+		cv::Mat first_R, first_T, first_n;// first solution rotation, translation, and normal
+		std::vector<double>::iterator second_solution_start, second_solution_end; std::vector<double> second_solution;// second solution variables. there may not be a second solution
+		bool second_solution_found;// indicates second solution found
+		cv::Mat second_R, second_T, second_n;// second solution rotation, translation, and normal
 		bool fc_found;
-		cv::Mat n_ref;
-		cv::Mat R_fc;
-		cv::Mat T_fc;
-		cv::Mat n_fc;
-		tf::Matrix3x3 R_fc_tf;
-		tf::Quaternion Q_fc_tf;
-		tf::Vector3 T_fc_tf;
-		tf::Transform fc_tf;
-		geometry_msgs::Quaternion Q_fc_gm;
-		tf::Quaternion Q_fc_tf_last = tf::Quaternion(0,0,0,0);
-		tf::Quaternion Q_fc_tf_negated = tf::Quaternion(0,0,0,0);
-		double Q_norm_current_diff = 0;
-		double Q_norm_negated_diff = 0;
-		geometry_msgs::Point P_fc_gm;
-		geometry_msgs::Pose pose_fc_gm;
-		
-		// alpha values
-		std_msgs::Float64 alpha_red;
-		std_msgs::Float64 alpha_green;
-		std_msgs::Float64 alpha_cyan;
-		std_msgs::Float64 alpha_purple;
-		
-		// complete decomposed message of 
-		homog_track::HomogDecomposed decomposed_msg;
-		
+		cv::Mat R_fc, T_fc, n_fc, n_ref;// rotation, translation, and normal of reference wrt camera
+		tf::Matrix3x3 R_fc_tf, R_cf_tf;// rotation of reference wrt camera and camera wrt reference
+		tf::Quaternion Q_cf_tf;// rotation of camera wrt reference as quaternion
+		tf::Vector3 T_fc_tf, T_cf_tf;// position of reference wrt camera and camera wrt reference
+		tf::Transform camera_wrt_reference;// transform of camera wrt reference
+		geometry_msgs::Quaternion Q_cf_gm;// camera wrt reference as quaternion geometry message
+		tf::Quaternion Q_cf_tf_last = tf::Quaternion(0,0,0,0), Q_cf_tf_negated = tf::Quaternion(0,0,0,0);// last camera wrt reference quaternion and negated current camera wrt reference quaternion
+		double Q_norm_current_diff = 0, Q_norm_negated_diff = 0;// norms to determine which is closer to last
+		geometry_msgs::Point P_cf_gm;// position of camera wrt reference as geometry message
+		geometry_msgs::Pose pose_cf_gm;// pose of camera wrt reference
+		std_msgs::Float64 alpha_red, alpha_green, alpha_cyan, alpha_purple;// alpha values
+		homog_track::HomogDecomposed decomposed_msg;// complete decomposed message
 		/********** End decomposition Declarations **********/
 		
 		
 		// constructor for the complete set of markers
 		FindTransformation()
 		{
-			// subscribing to the complete message
-			complete_message_sub = nh.subscribe("complete_homog_set",1, &FindTransformation::complete_message_callback, this);
-			
-			// publisher for the decomposed stuff
-			homog_decomp_pub = nh.advertise<homog_track::HomogDecomposed>("decomposed_homography",1);
-			
+			complete_message_sub = nh.subscribe("complete_homog_set",1, &FindTransformation::complete_message_callback, this);// subscribing to the complete message
+			homog_decomp_pub = nh.advertise<homog_track::HomogDecomposed>("decomposed_homography",1);// publisher for the decomposed stuff
 			//// camera matrix for the ardrone
 			//K = cv::Mat::zeros(3,3,CV_64F);
 			//K.at<double>(0,0) = 567.79;
@@ -366,7 +249,7 @@ class FindTransformation
 					// finding the approximate of the euclidean homography
 					H_hat = (K.inv(cv::DECOMP_LU)*G)*K;
 					
-					//
+					
 					std::cout << "testing" << std::endl; 
 					
 					// getting the svd of the approximate
@@ -579,34 +462,6 @@ class FindTransformation
 						
 						// erasing all the scalar values from the check
 						scalar_value_check.erase(scalar_value_check.begin(),scalar_value_check.end());
-					
-					
-						// displaying the first solution if it was found
-						if (first_solution_found)
-						{
-							//std::cout << std::endl << "first R: " << first_R << std::endl;
-							//std::cout << "first T: " << first_T << std::endl;
-							//std::cout << "first n: " << first_n << std::endl;
-							//for (double ii : first_solution)
-							//{
-								//std::cout << ii << " ";
-							//}
-							//std::cout << std::endl;
-							
-						}
-						
-						// displaying the second solution if it was found
-						if (second_solution_found)
-						{
-							//std::cout << std::endl << "second R: " << second_R << std::endl;
-							//std::cout << "second T: " << second_T << std::endl;
-							//std::cout << "second n: " << second_n << std::endl;
-							//for (double ii : second_solution)
-							//{
-								//std::cout << ii << " ";
-							//}
-							//std::cout << std::endl;
-						}
 						
 						// because the reference is set to the exact value when when n should have only a z componenet, the correct
 						// choice should be the one closest to n_ref = [0,0,1]^T which will be the one with the greatest dot product with n_ref
@@ -645,88 +500,71 @@ class FindTransformation
 							R_fc_tf[2][0] = R_fc.at<double>(2,0);
 							R_fc_tf[2][1] = R_fc.at<double>(2,1);
 							R_fc_tf[2][2] = R_fc.at<double>(2,2);
-							std::cout << "Final R:\n" << R_fc << std::endl;
+							
+							// take transpose for the quaternion
+							R_cf_tf = R_fc_tf.transpose();
+							
+							std::cout << "Rotation of F wrt Fstar:\n" << R_fc.t() << std::endl;
 							
 							// converting the translation to a vector 3
 							T_fc_tf.setX(T_fc.at<double>(0,0));
 							T_fc_tf.setY(T_fc.at<double>(0,1));
 							T_fc_tf.setZ(T_fc.at<double>(0,2));
-							std::cout << "Final T :\n" << T_fc << std::endl;
+							
+							// changeing to showing camera wrt to reference
+							T_cf_tf = -1*(R_cf_tf*T_fc_tf);
+							
+							std::cout << "Position of F wrt Fstar:\n" << -1*(R_fc.t()*T_fc) << std::endl;
 							
 							// getting the rotation as a quaternion
-							R_fc_tf.getRotation(Q_fc_tf);
-							
-							//std::cout << "current orientation:" << "\n\tx:\t" << Q_fc_tf.getX() 
-																//<< "\n\ty:\t" << Q_fc_tf.getY() 
-																//<< "\n\tz:\t" << Q_fc_tf.getZ() 
-																//<< "\n\tw:\t" << Q_fc_tf.getW() 
-																//<< std::endl;
-				
-							//std::cout << "norm of quaternion:\t" << Q_fc_tf.length() << std::endl;
-							
+							R_cf_tf.getRotation(Q_cf_tf);
+
 							// getting the negated version of the quaternion for the check
-							Q_fc_tf_negated = tf::Quaternion(-Q_fc_tf.getX(),-Q_fc_tf.getY(),-Q_fc_tf.getZ(),-Q_fc_tf.getW());
-							
-							//std::cout << "negated orientation:" << "\n\tx:\t" << Q_fc_tf_negated.getX() 
-																//<< "\n\ty:\t" << Q_fc_tf_negated.getY() 
-																//<< "\n\tz:\t" << Q_fc_tf_negated.getZ() 
-																//<< "\n\tw:\t" << Q_fc_tf_negated.getW() 
-																//<< std::endl;
-																
-							//std::cout << "norm of negated quaternion:\t" << Q_fc_tf_negated.length() << std::endl;
-							
-							// showing the last orientation
-							//std::cout << "last orientation:" << "\n\tx:\t" << Q_fc_tf_last.getX() 
-															 //<< "\n\ty:\t" << Q_fc_tf_last.getY() 
-															 //<< "\n\tz:\t" << Q_fc_tf_last.getZ() 
-															 //<< "\n\tw:\t" << Q_fc_tf_last.getW() 
-															 //<< std::endl;
-																
-							//std::cout << "norm of last quaternion:\t" << Q_fc_tf_last.length() << std::endl;
+							Q_cf_tf_negated = tf::Quaternion(-Q_cf_tf.getX(),-Q_cf_tf.getY(),-Q_cf_tf.getZ(),-Q_cf_tf.getW());
 							
 							// checking if the quaternion has flipped
-							Q_norm_current_diff = std::sqrt(std::pow(Q_fc_tf.getX() - Q_fc_tf_last.getX(),2.0)
-														  + std::pow(Q_fc_tf.getY() - Q_fc_tf_last.getY(),2.0) 
-														  + std::pow(Q_fc_tf.getZ() - Q_fc_tf_last.getZ(),2.0) 
-														  + std::pow(Q_fc_tf.getW() - Q_fc_tf_last.getW(),2.0));
+							Q_norm_current_diff = std::sqrt(std::pow(Q_cf_tf.getX() - Q_cf_tf_last.getX(),2.0)
+														  + std::pow(Q_cf_tf.getY() - Q_cf_tf_last.getY(),2.0) 
+														  + std::pow(Q_cf_tf.getZ() - Q_cf_tf_last.getZ(),2.0) 
+														  + std::pow(Q_cf_tf.getW() - Q_cf_tf_last.getW(),2.0));
 							
 							//std::cout << "current difference:\t" << Q_norm_current_diff << std::endl;
 							
-							Q_norm_negated_diff = std::sqrt(std::pow(Q_fc_tf_negated.getX() - Q_fc_tf_last.getX(),2.0)
-														  + std::pow(Q_fc_tf_negated.getY() - Q_fc_tf_last.getY(),2.0) 
-														  + std::pow(Q_fc_tf_negated.getZ() - Q_fc_tf_last.getZ(),2.0) 
-														  + std::pow(Q_fc_tf_negated.getW() - Q_fc_tf_last.getW(),2.0));
+							Q_norm_negated_diff = std::sqrt(std::pow(Q_cf_tf_negated.getX() - Q_cf_tf_last.getX(),2.0)
+														  + std::pow(Q_cf_tf_negated.getY() - Q_cf_tf_last.getY(),2.0) 
+														  + std::pow(Q_cf_tf_negated.getZ() - Q_cf_tf_last.getZ(),2.0) 
+														  + std::pow(Q_cf_tf_negated.getW() - Q_cf_tf_last.getW(),2.0));
 							
 							//std::cout << "negated difference:\t" << Q_norm_negated_diff << std::endl;
 							
-							if (Q_norm_current_diff > Q_norm_negated_diff)
-							{
-								Q_fc_tf = Q_fc_tf_negated;
-							}
+							//if (Q_norm_current_diff > Q_norm_negated_diff)
+							//{
+								//Q_cf_tf = Q_cf_tf_negated;
+							//}
 							
 							// updating the last
-							Q_fc_tf_last = Q_fc_tf;
+							Q_cf_tf_last = Q_cf_tf;
 							
 							// converting the tf quaternion to a geometry message quaternion
-							Q_fc_gm.x = Q_fc_tf.getX();
-							Q_fc_gm.y = Q_fc_tf.getY();
-							Q_fc_gm.z = Q_fc_tf.getZ();
-							Q_fc_gm.w = Q_fc_tf.getW();
+							Q_cf_gm.x = Q_cf_tf.getX();
+							Q_cf_gm.y = Q_cf_tf.getY();
+							Q_cf_gm.z = Q_cf_tf.getZ();
+							Q_cf_gm.w = Q_cf_tf.getW();
 							
 							// converting the tf vector3 to a point
-							P_fc_gm.x = T_fc_tf.getX();
-							P_fc_gm.y = T_fc_tf.getY();
-							P_fc_gm.z = T_fc_tf.getZ();
+							P_cf_gm.x = T_cf_tf.getX();
+							P_cf_gm.y = T_cf_tf.getY();
+							P_cf_gm.z = T_cf_tf.getZ();
 							
 							// setting the transform with the values
-							fc_tf.setOrigin(T_fc_tf);
-							fc_tf.setRotation(Q_fc_tf);
-							tf_broad.sendTransform(tf::StampedTransform(fc_tf, msg.current_points.header.stamp,"f_star","f_current"));
+							camera_wrt_reference.setOrigin(T_cf_tf);
+							camera_wrt_reference.setRotation(Q_cf_tf);
+							//tf_broad.sendTransform(tf::StampedTransform(cf_tf, msg.current_points.header.stamp,"f_current","f_star"));
 							
 							// setting the decomposed message
-							pose_fc_gm.position = P_fc_gm;
-							pose_fc_gm.orientation = Q_fc_gm;
-							decomposed_msg.pose = pose_fc_gm;
+							pose_cf_gm.position = P_cf_gm;
+							pose_cf_gm.orientation = Q_cf_gm;
+							decomposed_msg.pose = pose_cf_gm;
 							decomposed_msg.header.stamp = msg.current_points.header.stamp;
 							decomposed_msg.header.frame_id = "current_frame_normalized";
 							decomposed_msg.alpha_red = alpha_red;

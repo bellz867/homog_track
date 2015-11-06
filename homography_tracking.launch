@@ -1,21 +1,20 @@
   <launch>
-    <!-- Tracking Node-->
+    <!-- Tracking Node
     <node pkg="homog_track" type="tracking_node" name="tracking_node" />
+    -->
+    <!-- Sim Node-->
+    <node pkg="homog_track" type="simulator_node" name="simulator_node" />
     
     <!-- Decompose Node-->
     <node pkg="homog_track" type="decomp_node" name="decomp_node" />
 
     <!-- Desired Node-->
     <node pkg="homog_track" type="desired_camera_node" name="desired_camera_node" />
-
+    
+    <!-- Start Desired Node service
+    <node pkg="rosservice" type="rosservice" name="start_desired" args="call /start_desired"/>
+	-->
     <!-- Command Node-->
     <node pkg="homog_track" type="quad_controller_node" name="quad_controller_node" output="screen"/>
-    
-	<!-- Start Desired Node service-->
-    <node pkg="rosservice" type="rosservice" name="start_desired" args="call /start_desired"/>
-
-<!-- Tracking Node service-->
-    <node pkg="rosservice" type="rosservice" name="set_reference" args="call /set_reference 'reference_choice: 0'"/>
-
 
   </launch>

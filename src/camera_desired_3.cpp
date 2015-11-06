@@ -34,33 +34,43 @@ class DesiredCamera
 		// start desired publishing
 		bool start_publishing = false;
 		
-		// radius of 0.5 and height of 2 should work
-		
 		// desired radius in meters
-		double radius = 0.5;
-		
-		// distance off the ground in meters
-		std_msgs::Float64 height;
-		
-		// distance along z to the reference image
-		double z_fd = 0;
+		double desired_radius = 1;
+		cv::Mat vir_P_d;
 		
 		// desired period
-		double period = 30;
+		double desired_period = 30;
+		
+		// rotation and translation of virtual desired image wrt reference
+		cv::Mat vir_R_df;
+		tf::Matrix3x3 vir_R_df_tf;
+		tf::Quaternion vir_Q_df_tf;
+		tf::Quaternion Q_df_tf_negated;
+		tf::Quaternion Q_df_tf_last;
+		cv::Mat vir_P_df;
+		tf::Vector3 vir_P_df_tf;
+		tf::Transform desired_wrt_reference;
 		
 		// angular rate of change of the circle is then
-		//double omega_cd = -2.0*M_PIl/period;
-		double omega_cd = 0;
+		//double vir_yaw_dot = -2.0*M_PIl/desired_period;
+		double vir_yaw_dot = 0;
 		
-		// magnitude of the linear velocity
-		double v_cd = -radius*omega_cd;
+		// linear velocities
+		cv::Mat vir_P_df_dot;
 		
-		// vecotrs for the angular desired velocity and the lineard desired velocity
-		geometry_msgs::Vector3 omega_cd_v;
-		geometry_msgs::Vector3 vcd_v;
-		 
-		// start time
-		double start_time;
+		// rate of change matrix
+		cv::Mat vir_R_df_dot;
+		
+		// yaw angle
+		double vir_yaw = 0;
+		
+		// pose message for the desired pose		
+		geometry_msgs::Quaternion vir_Q_df_gm;
+		geometry_msgs::Point vir_P_df_gm;
+		geometry_msgs::Pose pose_df_gm;
+		
+		// last time the virtual reference was updated
+		ros::Time last_virtual_update_time;
 		
 		// current time
 		double current_time;
@@ -68,58 +78,80 @@ class DesiredCamera
 		// time difference
 		double time_diff = 0;
 		
-		// desired angle
-		double theta = omega_cd*time_diff;
+		/********** Begin Point Declarations **********/
+		// positions of the feature points wrt virtual reference image
+		// d*           = 1 m
+		// red:   (x,y) = (-0.05, -0.05) m
+		// green: (x,y) = ( 0.05, -0.05) m
+		// cyan:  (x,y) = ( 0.05,  0.05) m
+		// blue:  (x,y) = (-0.05,  0.05) m
 		
-		// transform between the desired and the reference
-		cv::Mat T_fd_fstar;
+		// if the camera reference is directly centered as defined by these points then 
+		// n*           = [0,0,1]^T
+		
+		// the four points normalized will be
+		// m*n_red      = [-0.05, -0.05, 1]^T
+		// m*n_green    = [ 0.05, -0.05, 1]^T
+		// m*n_cyan     = [ 0.05,  0.05, 1]^T
+		// m*n_purple   = [-0.05,  0.05, 1]^T
+		
+		// converting the normalized coordinates into pixel coordinates using p* = (K)(m*_n)
+		// p*_red      = K[-0.05, -0.05, 1]^T
+		// p*_green    = K[ 0.05, -0.05, 1]^T
+		// p*_cyan     = K[ 0.05,  0.05, 1]^T
+		// p*_purple   = K[-0.05,  0.05, 1]^T
+		
+		// distance along the z to the marker from the reference in meters
+		double z_ref = 2;
+		
+		// real coordinate values for the circles in the reference
+		cv::Mat mr_ref_bar;
+		cv::Mat mg_ref_bar;
+		cv::Mat mc_ref_bar;
+		cv::Mat mp_ref_bar;
+		
+		// normalized
+		cv::Mat mr_ref_norm;
+		cv::Mat mg_ref_norm;
+		cv::Mat mc_ref_norm;
+		cv::Mat mp_ref_norm;
+		
+		// as pixels
+		cv::Mat pr_ref;
+		cv::Mat pg_ref;
+		cv::Mat pc_ref;
+		cv::Mat pp_ref;
+		
+		// real coordinate values for the virtual desired camera
+		cv::Mat vir_mrd_bar;
+		cv::Mat vir_mgd_bar;
+		cv::Mat vir_mcd_bar;
+		cv::Mat vir_mpd_bar;
+		
+		// normalized
+		cv::Mat vir_mrd_norm;
+		cv::Mat vir_mgd_norm;
+		cv::Mat vir_mcd_norm;
+		cv::Mat vir_mpd_norm;
+		
+		// as pixels
+		cv::Mat vir_prd;
+		cv::Mat vir_pgd;
+		cv::Mat vir_pcd;
+		cv::Mat vir_ppd;
+		
+		// vecotrs for the angular desired velocity and the lineard desired velocity
+		geometry_msgs::Vector3 omega_cd_gm;
+		geometry_msgs::Vector3 vcd_gm;
 		
 		// the camera matrix
 		cv::Mat K;
 		
-		// location of the red marker to track 4 element, last element is 1
-		cv::Mat m_r_4;
-		
-		// location of the green marker to track 4 element, last element is 1
-		cv::Mat m_g_4;
-		
-		// location of the cyan marker to track 4 element, last element is 1
-		cv::Mat m_c_4;
-		
-		// location of the purple marker to track 4 element, last element is 1
-		cv::Mat m_p_4;
-		
-		// vector of the four matrices
-		std::vector<cv::Mat> marker_locations_4;
-		
-		// temp 4 element for the conversion
-		cv::Mat marker_temp_4;
-		
-		// temp 3 element for the conversion
-		cv::Mat marker_temp_3;
-		
-		// pixel locations
-		std::vector<cv::Mat> pixel_locations;
-		
 		// geometry message for the pixel location
-		geometry_msgs::Point p_r_gm;
-		geometry_msgs::Point p_g_gm;
-		geometry_msgs::Point p_c_gm;
-		geometry_msgs::Point p_p_gm;
-		
-		// pose message for the desired pose
-		tf::Matrix3x3 R_df_tf;
-		tf::Quaternion Q_df_tf = tf::Quaternion(0,0,0,0);;
-		tf::Quaternion  Q_df_tf_last = tf::Quaternion(0,0,0,0);
-		tf::Quaternion  Q_df_tf_negated = tf::Quaternion(0,0,0,0);
-		double Q_norm_current_diff = 0;
-		double Q_norm_negated_diff = 0;
-		tf::Vector3 T_df_tf;
-		geometry_msgs::Quaternion Q_df_gm;
-		geometry_msgs::Point P_df_gm;
-		geometry_msgs::Pose pose_df_gm;
-		
-		tf::Transform reference_to_desired;
+		geometry_msgs::Point vir_prd_gm;
+		geometry_msgs::Point vir_pgd_gm;
+		geometry_msgs::Point vir_pcd_gm;
+		geometry_msgs::Point vir_ppd_gm;
 		
 		// message
 		homog_track::HomogDesired desired_msg;
@@ -131,9 +163,6 @@ class DesiredCamera
 			
 			// initialize the service
 			desired_start_service = nh.advertiseService("start_desired", &DesiredCamera::set_desired_service_handler,this);
-			
-			// desired height from desired to plane
-			height.data = 2;
 			
 			//// camera matrix for the ardrone
 			//K = cv::Mat::zeros(3,3,CV_64F);
@@ -147,62 +176,114 @@ class DesiredCamera
 			//K.at<double>(2,2) = 1;
 			K = cv::Mat::eye(3,3,CV_64F);
 			
-			// red marker location in refernece frame
-			m_r_4 = cv::Mat::zeros(4,1,CV_64F);
-			// x is at -0.05 m
-			m_r_4.at<double>(0,0) = -0.05;
-			// y is at -0.05 m
-			m_r_4.at<double>(1,0) = -0.05;
-			// z is at 2 m
-			m_r_4.at<double>(2,0) = height.data;
-			// 1 for multiplying with the transform
-			m_r_4.at<double>(3,0) = 1;
+			// real coordinate values for the circles in the reference
+			mr_ref_bar = cv::Mat::zeros(3,1,CV_64F);
+			mg_ref_bar = cv::Mat::zeros(3,1,CV_64F);
+			mc_ref_bar = cv::Mat::zeros(3,1,CV_64F);
+			mp_ref_bar = cv::Mat::zeros(3,1,CV_64F);
 			
-			// green marker location in refernece frame
-			m_g_4 = cv::Mat::zeros(4,1,CV_64F);
-			// x is at -0.05 m
-			m_g_4.at<double>(0,0) = 0.05;
-			// y is at -0.05 m
-			m_g_4.at<double>(1,0) = -0.05;
-			// z is at 2 m
-			m_g_4.at<double>(2,0) = height.data;
-			// 1 for multiplying with the transform
-			m_g_4.at<double>(3,0) = 1;
+			// red
+			mr_ref_bar.at<double>(0,0) =  -0.05;
+			mr_ref_bar.at<double>(1,0) = -0.05;
+			mr_ref_bar.at<double>(2,0) = z_ref;
+			// green
+			mg_ref_bar.at<double>(0,0) = 0.05;
+			mg_ref_bar.at<double>(1,0) = -0.05;
+			mg_ref_bar.at<double>(2,0) = z_ref;
+			// cyan
+			mc_ref_bar.at<double>(0,0) = 0.05;
+			mc_ref_bar.at<double>(1,0) = 0.05;
+			mc_ref_bar.at<double>(2,0) = z_ref;
+			// purple
+			mp_ref_bar.at<double>(0,0) = -0.05;
+			mp_ref_bar.at<double>(1,0) = 0.05;
+			mp_ref_bar.at<double>(2,0) = z_ref;
 			
-			// cyan marker location in refernece frame
-			m_c_4 = cv::Mat::zeros(4,1,CV_64F);
-			// x is at -0.05 m
-			m_c_4.at<double>(0,0) = 0.05;
-			// y is at -0.05 m
-			m_c_4.at<double>(1,0) = 0.05;
-			// z is at 2 m
-			m_c_4.at<double>(2,0) = height.data;
-			// 1 for multiplying with the transform
-			m_c_4.at<double>(3,0) = 1;
+			// normalized
+			mr_ref_norm = (1.0/z_ref)*mr_ref_bar;
+			mg_ref_norm = (1.0/z_ref)*mg_ref_bar;
+			mc_ref_norm = (1.0/z_ref)*mc_ref_bar;
+			mp_ref_norm = (1.0/z_ref)*mp_ref_bar;
 			
-			// purple marker location in refernece frame
-			m_p_4 = cv::Mat::zeros(4,1,CV_64F);
-			// x is at -0.05 m
-			m_p_4.at<double>(0,0) = -0.05;
-			// y is at -0.05 m
-			m_p_4.at<double>(1,0) = 0.05;
-			// z is at 2 m
-			m_p_4.at<double>(2,0) = height.data;
-			// 1 for multiplying with the transform
-			m_p_4.at<double>(3,0) = 1;
+			// as pixels
+			pr_ref = K*mr_ref_norm;
+			pg_ref = K*mg_ref_norm;
+			pc_ref = K*mc_ref_norm;
+			pp_ref = K*mp_ref_norm;
 			
-			// putting the marker locations onto the vector
-			marker_locations_4.push_back(m_r_4);
-			marker_locations_4.push_back(m_g_4);
-			marker_locations_4.push_back(m_c_4);
-			marker_locations_4.push_back(m_p_4);
+			/********** marker values for a virtual desired camera  **********/
+			///////////// rotation and translation of virtual desired camera wrt virtual reference camera /////////
+			vir_R_df = cv::Mat::zeros(3,3,CV_64F);
 			
-			// initializing the transformation
-			T_fd_fstar = cv::Mat::zeros(4,4,CV_64F);
+			// rotation of the virtual desired camera wrt the virtual reference
+			vir_R_df.at<double>(0,0) = std::cos(vir_yaw);
+			vir_R_df.at<double>(1,0) = std::sin(vir_yaw);
+			vir_R_df.at<double>(0,1) = -1*std::sin(vir_yaw);
+			vir_R_df.at<double>(1,1) = std::cos(vir_yaw);
+			vir_R_df.at<double>(2,2) = 1;
 			
-			// initializing the temp markers
-			marker_temp_4 = cv::Mat::zeros(4,1,CV_64F);
-			marker_temp_3 = cv::Mat::zeros(3,1,CV_64F);
+			// translation of virtual desired camera wrt the reference camera 
+			vir_P_d = cv::Mat::zeros(3,1,CV_64F);
+			vir_P_df = cv::Mat::zeros(3,1,CV_64F);
+			vir_P_d.at<double>(1,0) = desired_radius;
+			vir_P_df = vir_R_df*vir_P_d;
+			
+			// linear velocity of the desired camera
+			vir_P_df_dot = cv::Mat::zeros(3,1,CV_64F);
+			vir_R_df_dot = cv::Mat::zeros(3,3,CV_64F);
+			vir_R_df_dot.at<double>(0,0) = -1*std::sin(vir_yaw);
+			vir_R_df_dot.at<double>(1,0) = std::cos(vir_yaw);
+			vir_R_df_dot.at<double>(0,1) = -1*std::cos(vir_yaw);
+			vir_R_df_dot.at<double>(1,1) = -1*std::sin(vir_yaw);
+			vir_P_df_dot = vir_yaw_dot*(vir_R_df_dot*vir_P_d);
+			
+			// new position is vir_mid_bar = -1*vir_R_df.transpose()*vir_P_df + vir_R_df.transpose()*mi_ref_bar
+			
+			// position of the feature points for wrt the virtual camera
+			vir_mrd_bar = cv::Mat::zeros(3,1,CV_64F);
+			vir_mgd_bar = cv::Mat::zeros(3,1,CV_64F);
+			vir_mcd_bar = cv::Mat::zeros(3,1,CV_64F);
+			vir_mpd_bar = cv::Mat::zeros(3,1,CV_64F);
+			
+			// getting the position of the feature points wrt virtual desired camera
+			vir_mrd_bar = -1*((vir_R_df.t())*vir_P_df) + (vir_R_df.t())*mr_ref_bar;
+			vir_mgd_bar = -1*((vir_R_df.t())*vir_P_df) + (vir_R_df.t())*mg_ref_bar;
+			vir_mcd_bar = -1*((vir_R_df.t())*vir_P_df) + (vir_R_df.t())*mc_ref_bar;
+			vir_mpd_bar = -1*((vir_R_df.t())*vir_P_df) + (vir_R_df.t())*mp_ref_bar;
+			
+			std::cout << "reference red:\n" << mr_ref_bar << std::endl;
+			std::cout << "reference green:\n" << mg_ref_bar << std::endl;
+			std::cout << "reference cyan:\n" << mc_ref_bar << std::endl;
+			std::cout << "reference purple:\n" << mp_ref_bar << std::endl;
+			
+			std::cout << "position of desired camera wrt reference:\n" << vir_P_df << std::endl;
+			std::cout << "rotation of desired camera wrt reference:\n" << vir_R_df << std::endl;
+			std::cout << "desired camera red bar:\n" << vir_mrd_bar << std::endl;
+			std::cout << "desired camera green bar:\n" << vir_mgd_bar << std::endl;
+			std::cout << "desired camera cyan bar:\n" << vir_mcd_bar << std::endl;
+			std::cout << "desired camera purple bar:\n" << vir_mpd_bar << std::endl;
+			
+			// normalizing
+			vir_mrd_bar = (1.0/vir_mrd_bar.at<double>(2,0))*vir_mrd_bar;
+			vir_mgd_bar = (1.0/vir_mgd_bar.at<double>(2,0))*vir_mgd_bar;
+			vir_mcd_bar = (1.0/vir_mcd_bar.at<double>(2,0))*vir_mcd_bar;
+			vir_mpd_bar = (1.0/vir_mpd_bar.at<double>(2,0))*vir_mpd_bar;
+			
+			std::cout << "virtual desired red norm:\n" << vir_mrd_bar << std::endl;
+			std::cout << "virtual desired green norm:\n" << vir_mgd_bar << std::endl;
+			std::cout << "virtual desired cyan norm:\n" << vir_mcd_bar << std::endl;
+			std::cout << "virtual desired purple norm:\n" << vir_mpd_bar << std::endl;
+			
+			// as pixels
+			vir_prd = K*vir_mrd_bar;
+			vir_pgd = K*vir_mgd_bar;
+			vir_pcd = K*vir_mcd_bar;
+			vir_ppd = K*vir_mpd_bar;
+			
+			std::cout << "virtual desired red pixels:\n" << vir_prd << std::endl;
+			std::cout << "virtual desired green pixels:\n" << vir_pgd << std::endl;
+			std::cout << "virtual desired cyan pixels:\n" << vir_pcd << std::endl;
+			std::cout << "virtual desired purple pixels:\n" << vir_ppd << std::endl;
 			
 		}
 		
@@ -214,7 +295,7 @@ class DesiredCamera
 			if (!start_publishing)
 			{
 				start_publishing = true;
-				start_time = ros::Time::now().toSec();
+				last_virtual_update_time = ros::Time::now();
 				res.running = true;
 			}
 			else
@@ -234,203 +315,107 @@ class DesiredCamera
 			// based on the transformation update. otherwise will output -1's
 			if (start_publishing)
 			{
-				// getting the current time
+				// update current time and get the time difference
 				current_time = ros::Time::now().toSec();
+				time_diff = current_time - last_virtual_update_time.toSec();
+				std::cout << "time diff:\t" << time_diff << std::endl;
+
+				// updating the yaw
+				vir_yaw += vir_yaw_dot*time_diff;
 				
-				// getting the time difference
-				time_diff = current_time - start_time;
-				std::cout << "\ntime difference:\t" << time_diff << std::endl;
+				std::cout << "virtual yaw:\t" << vir_yaw << std::endl;
 				
-				//  getting the current theta
-				theta = omega_cd*time_diff;
-				//theta = M_PIl/6;
-				//theta = -M_PIl/2.0;
+				///////////// rotation and translation of virtual desired camera wrt virtual reference camera /////////
+				// rotation of the virtual desired camera wrt the virtual reference
+				vir_R_df = cv::Mat::zeros(3,3,CV_64F);
+				vir_R_df.at<double>(0,0) = std::cos(vir_yaw);
+				vir_R_df.at<double>(1,0) = std::sin(vir_yaw);
+				vir_R_df.at<double>(0,1) = -1*std::sin(vir_yaw);
+				vir_R_df.at<double>(1,1) = std::cos(vir_yaw);
+				vir_R_df.at<double>(2,2) = 1;
 				
-				// wrapping the angle, if its spinning positively will subtract and add if spining negatively, tolerance at low value
-				while (std::abs(theta) >= 2.0*M_PIl)
-				{
-					std::cout << theta << std::endl;
-					if (omega_cd > 0)
-					{
-						//if ()
-						theta -= 2.0*M_PIl;
-					}
-					else
-					{
-						theta += 2.0*M_PIl;
-					}
-				}
+				// translation of virtual desired camera wrt the reference camera 
+				vir_P_df = vir_R_df*vir_P_d;
 				
-				std::cout << "theta current:\t" << theta*180.0/M_PIl << std::endl;
+				// linear velocity of the desired camera
+				vir_P_df_dot = cv::Mat::zeros(3,1,CV_64F);
+				vir_R_df_dot = cv::Mat::zeros(3,3,CV_64F);
+				vir_R_df_dot.at<double>(0,0) = -1*std::sin(vir_yaw);
+				vir_R_df_dot.at<double>(1,0) = std::cos(vir_yaw);
+				vir_R_df_dot.at<double>(0,1) = -1*std::cos(vir_yaw);
+				vir_R_df_dot.at<double>(1,1) = -1*std::sin(vir_yaw);
+				vir_P_df_dot = vir_yaw_dot*(vir_R_df_dot*vir_P_d);
 				
-				// reinitializing the transformation
-				T_fd_fstar = cv::Mat::zeros(4,4,CV_64F);
+				// new position is vir_mid_bar = -1*vir_R_df.transpose()*vir_P_df + vir_R_df.transpose()*mi_ref_bar
 				
-				// first row
-				T_fd_fstar.at<double>(0,0) = cos(theta);
-				T_fd_fstar.at<double>(0,1) = sin(theta);
-				T_fd_fstar.at<double>(0,3) = -1*radius;
-				// second row
-				T_fd_fstar.at<double>(1,0) = -1*sin(theta);
-				T_fd_fstar.at<double>(1,1) = cos(theta);
-				//// first row
-				//T_fd_fstar.at<double>(0,0) = 1;
-				//T_fd_fstar.at<double>(0,1) = 0;
-				//T_fd_fstar.at<double>(0,3) = -1*radius;
-				//// second row
-				//T_fd_fstar.at<double>(1,0) = 0;
-				//T_fd_fstar.at<double>(1,1) = 1;
-				// third row
-				T_fd_fstar.at<double>(2,2) = 1;
-				T_fd_fstar.at<double>(2,3) = z_fd;
-				//fourth row
-				T_fd_fstar.at<double>(3,3) = 1;
-				//// first row
-				//T_fd_fstar.at<double>(0,0) = 1;
-				//T_fd_fstar.at<double>(0,1) = 0;
-				//T_fd_fstar.at<double>(0,3) = -1*radius;
-				//// second row
-				//T_fd_fstar.at<double>(1,0) = 0;
-				//T_fd_fstar.at<double>(1,1) = 1;
-				////// first row
-				////T_fd_fstar.at<double>(0,0) = 1;
-				////T_fd_fstar.at<double>(0,1) = 0;
-				////T_fd_fstar.at<double>(0,3) = -1*radius;
-				////// second row
-				////T_fd_fstar.at<double>(1,0) = 0;
-				////T_fd_fstar.at<double>(1,1) = 1;
-				//// third row
-				//T_fd_fstar.at<double>(2,2) = 1;
-				//T_fd_fstar.at<double>(2,3) = z_fd;
-				////fourth row
-				//T_fd_fstar.at<double>(3,3) = 1;
+				// position of the feature points for wrt the virtual camera
+				vir_mrd_bar = cv::Mat::zeros(3,1,CV_64F);
+				vir_mgd_bar = cv::Mat::zeros(3,1,CV_64F);
+				vir_mcd_bar = cv::Mat::zeros(3,1,CV_64F);
+				vir_mpd_bar = cv::Mat::zeros(3,1,CV_64F);
 				
-				//std::cout << "current transform\n" << T_fd_fstar << std::endl;
+				// getting the position of the feature points wrt virtual desired camera
+				vir_mrd_bar = -1*((vir_R_df.t())*vir_P_df) + (vir_R_df.t())*mr_ref_bar;
+				vir_mgd_bar = -1*((vir_R_df.t())*vir_P_df) + (vir_R_df.t())*mg_ref_bar;
+				vir_mcd_bar = -1*((vir_R_df.t())*vir_P_df) + (vir_R_df.t())*mc_ref_bar;
+				vir_mpd_bar = -1*((vir_R_df.t())*vir_P_df) + (vir_R_df.t())*mp_ref_bar;
 				
-				// erasing all the pixel locations from the vector
-				pixel_locations.erase(pixel_locations.begin(),pixel_locations.end());
-				//std::cout << "pixel size\t" << pixel_locations.size() << std::endl;
+				std::cout << "reference red:\n" << mr_ref_bar << std::endl;
+				std::cout << "reference green:\n" << mg_ref_bar << std::endl;
+				std::cout << "reference cyan:\n" << mc_ref_bar << std::endl;
+				std::cout << "reference purple:\n" << mp_ref_bar << std::endl;
 				
-				// updating the temp values
-				for (int ii = 0; ii < 4; ii++)
-				{
-					// get the nect marker new location
-					marker_temp_4 = T_fd_fstar*marker_locations_4[ii];
-					
-					// normalize the marker
-					marker_temp_3.at<double>(0,0) = marker_temp_4.at<double>(0,0)/marker_temp_4.at<double>(2,0);
-					marker_temp_3.at<double>(1,0) = marker_temp_4.at<double>(1,0)/marker_temp_4.at<double>(2,0);
-					marker_temp_3.at<double>(2,0) = marker_temp_4.at<double>(2,0)/marker_temp_4.at<double>(2,0);
-					
-					// convert to pixels and add to the vector
-					pixel_locations.push_back(K*marker_temp_3);
-					//std::cout << "marker " << ii << "\n" << pixel_locations[ii] << std::endl;
-				}
-				// initializing the markers
-				p_r_gm.x = pixel_locations[0].at<double>(0,0);
-				p_r_gm.y = pixel_locations[0].at<double>(1,0);
-				p_r_gm.z = pixel_locations[0].at<double>(2,0);
+				std::cout << "position of desired camera wrt reference:\n" << vir_P_df << std::endl;
+				std::cout << "rotation of desired camera wrt reference:\n" << vir_R_df << std::endl;
+				std::cout << "desired camera red bar:\n" << vir_mrd_bar << std::endl;
+				std::cout << "desired camera green bar:\n" << vir_mgd_bar << std::endl;
+				std::cout << "desired camera cyan bar:\n" << vir_mcd_bar << std::endl;
+				std::cout << "desired camera purple bar:\n" << vir_mpd_bar << std::endl;
 				
-				p_g_gm.x = pixel_locations[1].at<double>(0,0);
-				p_g_gm.y = pixel_locations[1].at<double>(1,0);
-				p_g_gm.z = pixel_locations[1].at<double>(2,0);
+				// normalizing
+				vir_mrd_bar = (1.0/vir_mrd_bar.at<double>(2,0))*vir_mrd_bar;
+				vir_mgd_bar = (1.0/vir_mgd_bar.at<double>(2,0))*vir_mgd_bar;
+				vir_mcd_bar = (1.0/vir_mcd_bar.at<double>(2,0))*vir_mcd_bar;
+				vir_mpd_bar = (1.0/vir_mpd_bar.at<double>(2,0))*vir_mpd_bar;
 				
-				p_c_gm.x = pixel_locations[2].at<double>(0,0);
-				p_c_gm.y = pixel_locations[2].at<double>(1,0);
-				p_c_gm.z = pixel_locations[2].at<double>(2,0);
+				std::cout << "virtual desired red norm:\n" << vir_mrd_bar << std::endl;
+				std::cout << "virtual desired green norm:\n" << vir_mgd_bar << std::endl;
+				std::cout << "virtual desired cyan norm:\n" << vir_mcd_bar << std::endl;
+				std::cout << "virtual desired purple norm:\n" << vir_mpd_bar << std::endl;
 				
-				p_p_gm.x = pixel_locations[3].at<double>(0,0);
-				p_p_gm.y = pixel_locations[3].at<double>(1,0);
-				p_p_gm.z = pixel_locations[3].at<double>(2,0);
+				// as pixels
+				vir_prd = K*vir_mrd_bar;
+				vir_pgd = K*vir_mgd_bar;
+				vir_pcd = K*vir_mcd_bar;
+				vir_ppd = K*vir_mpd_bar;
 				
-				// getting the desired pose message
-				// converting the rotation from a cv matrix to quaternion, first need it as a matrix3x3
-				R_df_tf[0][0] = T_fd_fstar.at<double>(0,0);
-				R_df_tf[0][1] = T_fd_fstar.at<double>(0,1);
-				R_df_tf[0][2] = T_fd_fstar.at<double>(0,2);
-				R_df_tf[1][0] = T_fd_fstar.at<double>(1,0);
-				R_df_tf[1][1] = T_fd_fstar.at<double>(1,1);
-				R_df_tf[1][2] = T_fd_fstar.at<double>(1,2);
-				R_df_tf[2][0] = T_fd_fstar.at<double>(2,0);
-				R_df_tf[2][1] = T_fd_fstar.at<double>(2,1);
-				R_df_tf[2][2] = T_fd_fstar.at<double>(2,2);
+				std::cout << "virtual desired red pixels:\n" << vir_prd << std::endl;
+				std::cout << "virtual desired green pixels:\n" << vir_pgd << std::endl;
+				std::cout << "virtual desired cyan pixels:\n" << vir_pcd << std::endl;
+				std::cout << "virtual desired purple pixels:\n" << vir_ppd << std::endl;
 				
-				// converting the translation to a vector 3
-				T_df_tf.setX(T_fd_fstar.at<double>(0,3));
-				T_df_tf.setY(T_fd_fstar.at<double>(1,3));
-				T_df_tf.setZ(T_fd_fstar.at<double>(2,3));
-				
-				std::cout << "Final transform:\n" << T_fd_fstar << std::endl;
-				
-				//std::cout << "rotatation matrix:"
-						  //<< "\n\txx:\t" << R_df_tf.getColumn(0).getX()
-						  //<< "\n\txy:\t" << R_df_tf.getColumn(0).getY()
-						  //<< "\n\txz:\t" << R_df_tf.getColumn(0).getZ()
-						  //<< "\n\tyx:\t" << R_df_tf.getColumn(1).getX()
-						  //<< "\n\tyy:\t" << R_df_tf.getColumn(1).getY()
-						  //<< "\n\tyz:\t" << R_df_tf.getColumn(1).getZ()
-						  //<< "\n\tzx:\t" << R_df_tf.getColumn(2).getX()
-						  //<< "\n\tzy:\t" << R_df_tf.getColumn(2).getY()
-						  //<< "\n\tzz:\t" << R_df_tf.getColumn(2).getZ()
-						  //<< std::endl;
-						  
-				//std::cout << "norms of the rotation:" << "\n\tcx:\t" << R_df_tf.getColumn(0).length() 
-													  //<< "\n\tcy:\t" << R_df_tf.getColumn(1).length()
-													  //<< "\n\tcz:\t" << R_df_tf.getColumn(2).length()
-													  //<< "\n\trx:\t" << R_df_tf.getRow(0).length()
-													  //<< "\n\try:\t" << R_df_tf.getRow(1).length()
-													  //<< "\n\trz:\t" << R_df_tf.getRow(2).length()
-													  //<< std::endl;
-				
-				//std::cout << "dot products of the rotation:" << "\n\tc1c2\t" << R_df_tf.getColumn(0).dot(R_df_tf.getColumn(1))
-															 //<< "\n\tc1c3\t" << R_df_tf.getColumn(0).dot(R_df_tf.getColumn(2))
-															 //<< "\n\tc2c3\t" << R_df_tf.getColumn(1).dot(R_df_tf.getColumn(2))
-															 //<< "\n\tr1r2\t" << R_df_tf.getRow(0).dot(R_df_tf.getRow(1))
-															 //<< "\n\tr1r3\t" << R_df_tf.getRow(0).dot(R_df_tf.getRow(2))
-															 //<< "\n\tr2r3\t" << R_df_tf.getRow(1).dot(R_df_tf.getRow(2))
-															 //<< std::endl;
-				
-				// getting the rotation as a quaternion
-				R_df_tf.getRotation(Q_df_tf);
-				
-				//std::cout << "current orientation:" << "\n\tx:\t" << Q_df_tf.getX() 
-													//<< "\n\ty:\t" << Q_df_tf.getY() 
-													//<< "\n\tz:\t" << Q_df_tf.getZ() 
-													//<< "\n\tw:\t" << Q_df_tf.getW() 
-													//<< std::endl;
-				
-				//std::cout << "norm of quaternion:\t" << Q_df_tf.length() << std::endl;
+				// update the transform of the current desired virtual image wrt the reference image
+				vir_R_df_tf[0][0] = vir_R_df.at<double>(0,0);
+				vir_R_df_tf[0][1] = vir_R_df.at<double>(0,1);
+				vir_R_df_tf[0][2] = vir_R_df.at<double>(0,2);
+				vir_R_df_tf[1][0] = vir_R_df.at<double>(1,0);
+				vir_R_df_tf[1][1] = vir_R_df.at<double>(1,1);
+				vir_R_df_tf[1][2] = vir_R_df.at<double>(1,2);
+				vir_R_df_tf[2][0] = vir_R_df.at<double>(2,0);
+				vir_R_df_tf[2][1] = vir_R_df.at<double>(2,1);
+				vir_R_df_tf[2][2] = vir_R_df.at<double>(2,2);
+				vir_R_df_tf.getRotation(vir_Q_df_tf);
 				
 				// getting the negated version of the quaternion for the check
-				Q_df_tf_negated = tf::Quaternion(-Q_df_tf.getX(),-Q_df_tf.getY(),-Q_df_tf.getZ(),-Q_df_tf.getW());
-				
-				//std::cout << "negated orientation:" << "\n\tx:\t" << Q_df_tf_negated.getX() 
-													//<< "\n\ty:\t" << Q_df_tf_negated.getY() 
-													//<< "\n\tz:\t" << Q_df_tf_negated.getZ() 
-													//<< "\n\tw:\t" << Q_df_tf_negated.getW() 
-													//<< std::endl;
-													
-				//std::cout << "norm of negated quaternion:\t" << Q_df_tf_negated.length() << std::endl;
-				
-				//// showing the last orientation
-				//std::cout << "last orientation:" << "\n\tx:\t" << Q_df_tf_last.getX() 
-												 //<< "\n\ty:\t" << Q_df_tf_last.getY() 
-												 //<< "\n\tz:\t" << Q_df_tf_last.getZ() 
-												 //<< "\n\tw:\t" << Q_df_tf_last.getW() 
-												 //<< std::endl;
-													
-				//std::cout << "norm of last quaternion:\t" << Q_df_tf_last.length() << std::endl;
-				
+				Q_df_tf_negated = tf::Quaternion(-vir_Q_df_tf.getX(),-vir_Q_df_tf.getY(),-vir_Q_df_tf.getZ(),-vir_Q_df_tf.getW());
 				
 				// checking if the quaternion has flipped
-				Q_norm_current_diff = std::sqrt(std::pow(Q_df_tf.getX() - Q_df_tf_last.getX(),2.0)
-											  + std::pow(Q_df_tf.getY() - Q_df_tf_last.getY(),2.0) 
-											  + std::pow(Q_df_tf.getZ() - Q_df_tf_last.getZ(),2.0) 
-											  + std::pow(Q_df_tf.getW() - Q_df_tf_last.getW(),2.0));
+				double Q_norm_current_diff = std::sqrt(std::pow(vir_Q_df_tf.getX() - Q_df_tf_last.getX(),2.0)
+											  + std::pow(vir_Q_df_tf.getY() - Q_df_tf_last.getY(),2.0) 
+											  + std::pow(vir_Q_df_tf.getZ() - Q_df_tf_last.getZ(),2.0) 
+											  + std::pow(vir_Q_df_tf.getW() - Q_df_tf_last.getW(),2.0));
 				
-				//std::cout << "current difference:\t" << Q_norm_current_diff << std::endl;
-				
-				Q_norm_negated_diff = std::sqrt(std::pow(Q_df_tf_negated.getX() - Q_df_tf_last.getX(),2.0)
+				double Q_norm_negated_diff = std::sqrt(std::pow(Q_df_tf_negated.getX() - Q_df_tf_last.getX(),2.0)
 											  + std::pow(Q_df_tf_negated.getY() - Q_df_tf_last.getY(),2.0) 
 											  + std::pow(Q_df_tf_negated.getZ() - Q_df_tf_last.getZ(),2.0) 
 											  + std::pow(Q_df_tf_negated.getW() - Q_df_tf_last.getW(),2.0));
@@ -439,90 +424,112 @@ class DesiredCamera
 				
 				if (Q_norm_current_diff > Q_norm_negated_diff)
 				{
-					Q_df_tf = Q_df_tf_negated;
+					vir_Q_df_tf = Q_df_tf_negated;
 				}
 				
 				// updating the last
-				Q_df_tf_last = Q_df_tf;
+				Q_df_tf_last = vir_Q_df_tf;
+				
+				vir_P_df_tf.setValue(vir_P_df.at<double>(0,0), vir_P_df.at<double>(0,1), vir_P_df.at<double>(0,2));
+				desired_wrt_reference.setOrigin(vir_P_df_tf);
+				desired_wrt_reference.setRotation(vir_Q_df_tf);
+				
+				// updating the feature points
+				vir_prd_gm.x = vir_prd.at<double>(0,0);
+				vir_prd_gm.y = vir_prd.at<double>(1,0);
+				vir_prd_gm.z = vir_prd.at<double>(2,0);
+				
+				vir_pgd_gm.x = vir_pgd.at<double>(0,0);
+				vir_pgd_gm.y = vir_pgd.at<double>(1,0);
+				vir_pgd_gm.z = vir_pgd.at<double>(2,0);
+				
+				vir_pcd_gm.x = vir_pcd.at<double>(0,0);
+				vir_pcd_gm.y = vir_pcd.at<double>(1,0);
+				vir_pcd_gm.z = vir_pcd.at<double>(2,0);
+				
+				vir_ppd_gm.x = vir_ppd.at<double>(0,0);
+				vir_ppd_gm.y = vir_ppd.at<double>(1,0);
+				vir_ppd_gm.z = vir_ppd.at<double>(2,0);
 				
 				// converting the tf quaternion to a geometry message quaternion
-				Q_df_gm.x = Q_df_tf.getX();
-				Q_df_gm.y = Q_df_tf.getY();
-				Q_df_gm.z = Q_df_tf.getZ();
-				Q_df_gm.w = Q_df_tf.getW();
-				//std::cout << "current output quaternion" << "\n\tx:\t" << Q_df_gm.x 
-														 //<< "\n\ty:\t" << Q_df_gm.y
-														 //<< "\n\tz:\t" << Q_df_gm.z
-														 //<< "\n\tw:\t" << Q_df_gm.w
+				vir_Q_df_gm.x = vir_Q_df_tf.getX();
+				vir_Q_df_gm.y = vir_Q_df_tf.getY();
+				vir_Q_df_gm.z = vir_Q_df_tf.getZ();
+				vir_Q_df_gm.w = vir_Q_df_tf.getW();
+				//std::cout << "current output quaternion" << "\n\tx:\t" << vir_Q_df_gm.x 
+														 //<< "\n\ty:\t" << vir_Q_df_gm.y
+														 //<< "\n\tz:\t" << vir_Q_df_gm.z
+														 //<< "\n\tw:\t" << vir_Q_df_gm.w
 														 //<< std::endl;
 				
 				// converting the tf vector3 to a point
-				P_df_gm.x = T_df_tf.getX();
-				P_df_gm.y = T_df_tf.getY();
-				P_df_gm.z = T_df_tf.getZ();
-				//std::cout << "current output position" << "\n\tx:\t" << P_df_gm.x 
-													   //<< "\n\ty:\t" << P_df_gm.y
-													   //<< "\n\tz:\t" << P_df_gm.z
+				vir_P_df_gm.x = vir_P_df_tf.getX();
+				vir_P_df_gm.y = vir_P_df_tf.getY();
+				vir_P_df_gm.z = vir_P_df_tf.getZ();
+				//std::cout << "current output position" << "\n\tx:\t" << vir_P_df_gm.x 
+													   //<< "\n\ty:\t" << vir_P_df_gm.y
+													   //<< "\n\tz:\t" << vir_P_df_gm.z
 													   //<< std::endl;
 				
 				// setting the desired message
-				pose_df_gm.position = P_df_gm;
-				pose_df_gm.orientation = Q_df_gm;
+				pose_df_gm.position = vir_P_df_gm;
+				pose_df_gm.orientation = vir_Q_df_gm;
 				desired_msg.pose = pose_df_gm;
 				desired_msg.header.stamp = ros::Time::now();
 				desired_msg.header.frame_id = "desired_frame_normalized";
-				desired_msg.height = height;
+				desired_msg.height.data = z_ref;
 				desired_msg.updating_desired = start_publishing;
-				desired_msg.red_circle = p_r_gm;
-				desired_msg.green_circle = p_g_gm;
-				desired_msg.cyan_circle = p_c_gm;
-				desired_msg.purple_circle = p_p_gm;
-				omega_cd_v.x = 0;
-				omega_cd_v.y = 0;
-				omega_cd_v.z = omega_cd;
-				desired_msg.omega_cd = omega_cd_v;
-				vcd_v.x = 0;
-				vcd_v.y = v_cd;
-				vcd_v.z = 0;
-				desired_msg.v_cd = vcd_v;
+				desired_msg.red_circle = vir_prd_gm;
+				desired_msg.green_circle = vir_pgd_gm;
+				desired_msg.cyan_circle = vir_pcd_gm;
+				desired_msg.purple_circle = vir_ppd_gm;
 				
+				cv::Mat vir_wcd_fd_temp = cv::Mat::zeros(3,1,CV_64F);
+				cv::Mat vir_wcd_df_temp = cv::Mat::zeros(3,1,CV_64F);
+				vir_wcd_df_temp.at<double>(2,0) = vir_yaw_dot;
+				vir_wcd_fd_temp = (vir_R_df.t())*vir_wcd_df_temp;
+				omega_cd_gm.x = vir_wcd_fd_temp.at<double>(0,0);
+				omega_cd_gm.y = vir_wcd_fd_temp.at<double>(1,0);
+				omega_cd_gm.z = vir_wcd_fd_temp.at<double>(2,0);
+				desired_msg.omega_cd = omega_cd_gm;
 				
+				cv::Mat vir_P_fd_dot_temp = cv::Mat::zeros(3,1,CV_64F);
+				vir_P_fd_dot_temp = (vir_R_df.t())*vir_P_df_dot;
+				vcd_gm.x = vir_P_fd_dot_temp.at<double>(0,0);
+				vcd_gm.y = vir_P_fd_dot_temp.at<double>(1,0);
+				vcd_gm.z = vir_P_fd_dot_temp.at<double>(2,0);
+				desired_msg.v_cd = vcd_gm;
 				
-				std::cout << "complete message\n" << desired_msg << std::endl << std::endl;
-
-			
-				// initialize the virtual transform
-				reference_to_desired.setOrigin(T_df_tf);
-				reference_to_desired.setRotation(Q_df_tf);
-				
+				// publish tf
+				br.sendTransform(tf::StampedTransform(desired_wrt_reference, last_virtual_update_time
+											 ,"reference_image","desired_image"));
 			}
 			else
 			{
-				// erasing all the pixel locations from the vector
-				pixel_locations.erase(pixel_locations.begin(),pixel_locations.end());
-				//std::cout << "pixel size\t" << pixel_locations.size() << std::endl;
+				// updating the markers the markers
+				vir_prd_gm.x = -1;
+				vir_prd_gm.y = -1;
+				vir_prd_gm.z = -1;
 				
-				// updating the temp values
-				for (int ii = 0; ii < 4; ii++)
-				{
-					// set to -1
-					marker_temp_3.at<double>(0,0) = -1;
-					marker_temp_3.at<double>(1,0) = -1;
-					marker_temp_3.at<double>(2,0) = -1;
-					
-					// convert to pixels and add to the vector
-					pixel_locations.push_back(marker_temp_3);
-					//std::cout << "marker " << ii << "\n" << pixel_locations[ii] << std::endl;
-				}
+				vir_pgd_gm.x = -1;
+				vir_pgd_gm.y = -1;
+				vir_pgd_gm.z = -1;
+				
+				vir_pcd_gm.x = -1;
+				vir_pcd_gm.y = -1;
+				vir_pcd_gm.z = -1;
+				
+				vir_ppd_gm.x = -1;
+				vir_ppd_gm.y = -1;
+				vir_ppd_gm.z = -1;
 				desired_msg.updating_desired = start_publishing;
-				
 			}
+			
+			last_virtual_update_time = ros::Time::now();
 			
 			// publish the marker
 			desired_camera_pub.publish(desired_msg);
-			// publish tf
-			br.sendTransform(tf::StampedTransform(reference_to_desired.inverse(), ros::Time::now()
-											 ,"reference_image","desired_image"));
+			
 		}
 };
 
@@ -541,13 +548,6 @@ int main(int argc, char** argv)
     {
 		// updating the desired camera pixels
 		desired_camera.update_pixels();
-		//for (int ii = 0; ii < desired_camera.pixel_locations.size(); ii++)
-		//{
-			//std::cout << "marker " << ii << "\n" << desired_camera.pixel_locations[ii] << std::endl;
-		//}
-		
-		// publish the current desired reference
-		//desired_camera_pub.publish
 		
 		// release 
 		ros::spinOnce();
