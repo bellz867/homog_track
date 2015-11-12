@@ -49,8 +49,6 @@ class FindTransformation
 		/********** Begin Topic Declarations **********/		
 		ros::Subscriber complete_message_sub;// subscriber to the complete homography message containing both matrices
 		ros::Publisher homog_decomp_pub;// publisher for the decomposed homography
-		tf::TransformBroadcaster tf_broad;// broadcaster for the transform
-		ros::Publisher marker_pub;// marker publisher
 		/********** End Topic Declarations **********/
 		
 		/********** Begin Point Declarations **********/		
@@ -537,10 +535,10 @@ class FindTransformation
 							
 							//std::cout << "negated difference:\t" << Q_norm_negated_diff << std::endl;
 							
-							//if (Q_norm_current_diff > Q_norm_negated_diff)
-							//{
-								//Q_cf_tf = Q_cf_tf_negated;
-							//}
+							if (Q_norm_current_diff > Q_norm_negated_diff)
+							{
+								Q_cf_tf = Q_cf_tf_negated;
+							}
 							
 							// updating the last
 							Q_cf_tf_last = Q_cf_tf;
@@ -559,7 +557,6 @@ class FindTransformation
 							// setting the transform with the values
 							camera_wrt_reference.setOrigin(T_cf_tf);
 							camera_wrt_reference.setRotation(Q_cf_tf);
-							//tf_broad.sendTransform(tf::StampedTransform(cf_tf, msg.current_points.header.stamp,"f_current","f_star"));
 							
 							// setting the decomposed message
 							pose_cf_gm.position = P_cf_gm;

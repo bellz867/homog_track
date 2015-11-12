@@ -28,15 +28,11 @@
 #include <sensor_msgs/Joy.h>
 #include <std_msgs/Empty.h>
 
-// function to push values onto a vector and if it is over some length will remove the first and then push it
-template <typename sample_set_type> void shift_sample_set(std::deque<sample_set_type> &sample_set, sample_set_type new_sample, const int sample_set_length)
+// function to push values onto a deque and if it is over some length will remove the first and then push it
+template <typename sample_set_type> void shift_sample_set(std::deque<sample_set_type> &sample_set, sample_set_type &new_sample)
 {
-	if (sample_set.size() > sample_set_length - 1)
-	{
-		sample_set.pop_front();
-	}
+	sample_set.pop_front();
 	sample_set.push_back(new_sample);
-	
 }
 
 // class for subscribing to decomposed homography and outputting controller commands to drive 
@@ -44,158 +40,92 @@ template <typename sample_set_type> void shift_sample_set(std::deque<sample_set_
 class QuadController
 {
 	public:
-		// file to write to
-		std::fstream output_file;
-	
-		// file name
-		//std::string output_file_name = "/home/zack/v1_ws/src/homog_track/testing_files/testing.txt";
-	
-		// display all the calculation steps
-		bool display_all_calc_steps = false;
-		
-		// alpha red
-		// reference height
-		double alpha_red_d = 1;
-		double z_ref_real = 2;
-		// node handle
-		ros::NodeHandle nh;
+		bool write_to_file = true;
+		std::fstream output_file;// file to write to
+		std::string output_file_name = "/home/zack/v1_ws/src/homog_track/testing_files/test_all_slow_cpp.txt"; // file name
+		bool display_all_calc_steps = false;// display all the calculation steps
+		double alpha_red_d = 1;// alpha red desired
+		double z_ref_real = 2;// reference height			
+		ros::NodeHandle nh;// node handle
 		
 		/********** Begin Topic Declarations **********/
-		ros::Subscriber homog_decomp_sub;
-		ros::Subscriber homog_desired_sub;
-		ros::Subscriber homog_marker_sub;
-		ros::Subscriber joy_sub;
-		ros::Publisher takeoff_pub;
-		ros::Publisher land_pub;
-		ros::Publisher reset_pub;
-		ros::Publisher cmd_vel_pub;
-		ros::Publisher z_ref_pub;
-		
+		ros::Subscriber homog_decomp_sub, homog_desired_sub, homog_marker_sub, joy_sub;
+		ros::Publisher takeoff_pub, land_pub, reset_pub, cmd_vel_pub, z_ref_pub;
 		/********** End Topic Declarations **********/
 		
 		/********** Begin current pose message **********/
-		geometry_msgs::PoseStamped pose_F_wrt_Fstar_gm;
-		geometry_msgs::Quaternion Q_gm;
-		tf::Quaternion Q_tf {0,0,0,0};
-		geometry_msgs::Point P_F_wrt_Fstar;
-		double alpha_red = 0;
-		double alpha_green = 0;
-		double alpha_cyan = 0;
-		double alpha_purple = 0;
-		
+		bool reference_set = false;
+		geometry_msgs::PoseStamped pose_F_wrt_Fstar_gm;// pose of camera wrt reference
+		geometry_msgs::Quaternion Q_gm;// rotation of camera wrt reference
+		tf::Quaternion Q_tf = tf::Quaternion(0,0,0,0), Q_wc_temp = tf::Quaternion(0,0,0,0);
+		tf::Vector3 wc_temp = tf::Vector3(0,0,0);
+		tf::Vector3 wc = tf::Vector3(0,0,0);// rotation of camera wrt reference
+		geometry_msgs::Point P_F_wrt_Fstar;// position of camera wrt reference
+		geometry_msgs::Point pr_gm, pg_gm, pc_gm, pp_gm;//pixel coordinates of the current camera
+		double alpha_red = 0, alpha_green = 0, alpha_cyan = 0, alpha_purple = 0;// alphas for the camera
+		tf::Vector3 pr = tf::Vector3(0,0,0), mr = tf::Vector3(0,0,0);// the red circle normalized components and its pixel coordinates
+		tf::Matrix3x3 mr_mat = tf::Matrix3x3(0,0,0,0,0,0,0,0,0), ss_mr = tf::Matrix3x3(0,0,0,0,0,0,0,0,0);//matrix for Lv calc and ss
 		/********** End current pose message **********/
 		
 		/********** Begin desired pose message **********/
 		bool updating_desired = false;
-		geometry_msgs::PoseStamped pose_Fd_wrt_Fstar_gm;
-		geometry_msgs::Quaternion Qd_gm;
-		tf::Quaternion Qd_tf {0,0,0,0};
-		geometry_msgs::Point P_Fd_wrt_Fstar;
-		geometry_msgs::Point prd_gm;
-		geometry_msgs::Point pgd_gm;
-		geometry_msgs::Point pcd_gm;
-		geometry_msgs::Point ppd_gm;
-		double zrd = 1;
-		geometry_msgs::Vector3 wcd_gm;
-		geometry_msgs::Vector3 vcd_gm;
-		
-		
+		geometry_msgs::PoseStamped pose_Fd_wrt_Fstar_gm;// pose of desired camera wrt reference
+		geometry_msgs::Quaternion Qd_gm;// rotation of desired camera wrt reference
+		tf::Quaternion Qd_tf = tf::Quaternion(0,0,0,0);// rotation of desired camera wrt reference
+		geometry_msgs::Point P_Fd_wrt_Fstar;// position of desired camera wrt reference
+		geometry_msgs::Point prd_gm, pgd_gm, pcd_gm, ppd_gm;// pixel coordinates for the desired points
+		geometry_msgs::Vector3 wcd_gm, vcd_gm;// desired camera linear and angular velocity of wrt desired camera
+		tf::Quaternion Q_wcd = tf::Quaternion(0,0,0,0);// desired angular velocity as a quaternion
+		tf::Vector3 wcd = tf::Vector3(0,0,0), vcd = tf::Vector3(0,0,0), prd = tf::Vector3(0,0,0), mrd = tf::Vector3(0,0,0);// desired angular velocty, desired linear velocity, desired pixels, and desired normalized 
+		tf::Matrix3x3 mrd_mat = tf::Matrix3x3(0,0,0,0,0,0,0,0,0), ss_mrd = tf::Matrix3x3(0,0,0,0,0,0,0,0,0);// matrix for Lvd calc and ss mrd
 		/********** End deisred pose message **********/
 		
-		/********** Begin marker message **********/
-		
-		geometry_msgs::Point pr_gm;
-		geometry_msgs::Point pg_gm;
-		geometry_msgs::Point pc_gm;
-		geometry_msgs::Point pp_gm;
-		bool reference_set = false;
-		
-		
-		/********** End marker message **********/
-		
 		/********** Begin xbox controller message **********/
-		double a_button_land_b0 = 0;
-		double b_button_reset_b1 = 0;
-		double y_button_takeoff_b3 = 0;
-		double lb_button_teleop_b4 = 0;
-		double rt_stick_ud_x_a3 = 0;
-		double rt_stick_lr_y_a2 = 0;
-		double lt_stick_ud_z_a1 = 0;
-		double lt_stick_lr_th_a0 = 0;
-		std::vector<double> controller_input;
-		
+		double a_button_land_b0 = 0, b_button_reset_b1 = 0, y_button_takeoff_b3 = 0, lb_button_teleop_b4 = 0, rt_stick_ud_x_a3 = 0, rt_stick_lr_y_a2 = 0, lt_stick_ud_z_a1 = 0, lt_stick_lr_th_a0 = 0;
 		/********** End xbox controller message **********/
 		
 		/********** Begin Tracking Controller Declarations **********/
-		// rotational error
-		tf::Quaternion Q_error {0,0,0,0};
-		tf::Vector3 Q_error_v {0,0,0};
+		tf::Quaternion Q_error =tf::Quaternion(0,0,0,0);// rotational error
+		tf::Vector3 Q_error_v =tf::Vector3(0,0,0);// rotational error vector porition
+		/********** End Tracking Controller Declarations **********/
 		
-		/********** Gains **********/
-		/********** Gains **********/
-		/********** Gains **********/
-		
-		// K_w scalar
-		double Kws = 1;
-		
-		// rotational gain matrix initialize to identity
-		tf::Matrix3x3 Kw {Kws,0,0,
-						   0,Kws,0,
-						   0,0,Kws};
-						   
-		// linear velocity gain scalar
-		//double K_vs = 1000;
+		/****************************** Gains ******************************/
+		/****************************** Gains ******************************/
+		/****************************** Gains ******************************/
+		double Kws = 1;// K_w scalar
+		tf::Matrix3x3 Kw = tf::Matrix3x3(Kws,0,0,
+										 0,Kws,0,
+										 0,0,Kws);// rotational gain matrix initialize to identity
+		//double K_vs = 1000;// linear velocity gain scalar
 		double Kvs = 1;
+		tf::Matrix3x3 Kv = tf::Matrix3x3(Kvs,0,0,
+										0,Kvs,0,
+										0,0,Kvs);// linear velocity gain matrix
+		double gamma_1 = std::pow(5,1);// control gains for the z_star_hat_dot calculation
+		//double gamma_2 = std::pow(0.3,1);
+		double gamma_2 = 0;
+		double zr_star_hat = 10;// current value for zr_star_hat and its timestamp initializing to the initial guess
+		std_msgs::Float64 zr_star_hat_msg;// output for the zr_star_hat
+		/****************************** Gains ******************************/
+		/****************************** Gains ******************************/
+		/****************************** Gains ******************************/
 		
-		// linear velocity gain matrix
-		tf::Matrix3x3 Kv {Kvs,0,0,
-						   0,Kvs,0,
-						   0,0,Kvs};
-						   
-		// control gains for the z_star_hat_dot calculation
-		double gamma_1 = std::pow(5,1);
-		double gamma_2 = std::pow(0.3,1);
-		//double gamma_2 = 0;
-		
-		// current value for zr_star_hat and its timestamp initializing to the initial guess
-		double zr_star_hat = 10;
-		// output for the zr_star_hat
-		std_msgs::Float64 zr_star_hat_msg;				   
-		
-		/********** Gains **********/
-		/********** Gains **********/
-		/********** Gains **********/
-		
-		// desired rotation quaternion
-		tf::Quaternion Q_wcd {0,0,0,0};
-		tf::Vector3 wcd {0,0,0};
-		
-		// camera rotation command
-		tf::Quaternion Q_wc_temp {0,0,0,0};
-		tf::Vector3 wc_temp {0,0,0};
-		tf::Vector3 wc {0,0,0};
-		
-		// finding phi
-		//// the camera matrix
-		//tf::Matrix3x3 K { 567.79, 0, 337.35, //first row
-						  //0, 564.52, 169.54, // second row
-						  //0, 0, 1}; //third row 
-						
-		//// matrix with the principle point coordinates of the camera
-		//tf::Matrix3x3 principle_point { 0, 0, 337.35, // u0
-										//0, 0, 169.54, // v0
-										//0, 0, 0};
+		/******************** Begin Controler paramerters ********************/
+		double start_time = 0;
+		const int number_of_samples = 20;// number of samples for stack
+		const int number_of_integrating_samples = 30*0.2;// number of integrating samples
+		//tf::Matrix3x3 K = tf::Matrix3x3(567.79, 0, 337.35,
+										//0, 564.52, 169.54,
+										//0, 0, 1);// the camera matrix
 		tf::Matrix3x3 K = tf::Matrix3x3(1,0,0,0,1,0,0,0,1), principle_point = tf::Matrix3x3(0,0,0,0,0,0,0,0,0);// matrix with the principle point coordinates of the camera
-		tf::Vector3 pr = tf::Vector3(0,0,0), mr = tf::Vector3(0,0,0);// the red circle normalized components and its pixel coordinates and it as a skew symetrix
-		tf::Matrix3x3 mr_mat = tf::Matrix3x3(0,0,0,0,0,0,0,0,0), ss_mr = tf::Matrix3x3(0,0,0,0,0,0,0,0,0);
+		//tf::Matrix3x3 principle_point = tf::Matrix3x3(0, 0, 337.35, // u0
+													  //0, 0, 169.54, // v0
+													  //0, 0, 0);// matrix with the principle point coordinates of the camera
+		tf::Quaternion Q_error_tf = tf::Quaternion(0,0,0,0);//rotational error
 		tf::Matrix3x3 Lv = tf::Matrix3x3(0,0,0,0,0,0,0,0,0), Lv_term1 = tf::Matrix3x3(0,0,0,0,0,0,0,0,0);// Lv
 		tf::Vector3 phi_term1 = tf::Vector3(0,0,0), phi = tf::Vector3(0,0,0);// phi
 		tf::Vector3 ped_dot_term1 = tf::Vector3(0,0,0), ped_dot_term2 = tf::Vector3(0,0,0), ped_dot = tf::Vector3(0,0,0);//ped_dot
 		tf::Matrix3x3 Lvd = tf::Matrix3x3(0,0,0,0,0,0,0,0,0), Lvd_term1 = tf::Matrix3x3(0,0,0,0,0,0,0,0,0);// Lvd
-		tf::Vector3 vcd = tf::Vector3(0,0,0), prd = tf::Vector3(0,0,0), mrd = tf::Vector3(0,0,0);// desired velocity, desired pixels, and desired normalized 
-		tf::Matrix3x3 mrd_mat = tf::Matrix3x3(0,0,0,0,0,0,0,0,0), ss_mrd = tf::Matrix3x3(0,0,0,0,0,0,0,0,0);// matrix for Lvd calc and ss mrd
-		const int number_of_samples = 20;// number of samples for stack
-		const int number_of_integrating_samples = 100;// number of integrating samples
 		tf::Vector3 ev = tf::Vector3(0,0,0), pe = tf::Vector3(0,0,0), ped = tf::Vector3(0,0,0); // value for calculating the current ev, that is pe-ped
 		double current_timestamp = 0, last_timestamp = 0;// current timestamp in seconds and last time step in seconds
 		tf::Vector3 Ev = tf::Vector3(0,0,0); tf::Vector3 Phi = tf::Vector3(0,0,0); tf::Vector3 U = tf::Vector3(0,0,0); tf::Vector3 Uvar = tf::Vector3(0,0,0);// current value for Ev, Phi, U, and Uvar
@@ -212,16 +142,14 @@ class QuadController
 		double zr_star_hat_dot = 0;// current value for zr_star_hat_dot = gamma1*transpose(ev)*phi + gamma1*gamma2*sum_from_k=1_to_n( transpose(Ev(k)-Phi(k))*(-(Ev(k)-Phi(k))*zr_star_hat - U(k)) )
 		double zr_star_hat_dot_sum = 0;// temp for the summation in zr_star_hat_dot
 		bool first_time_update = true; // first time update occurance
-		bool dont_calculate_zr_integral = true;// indicates not to calculate integral because the integral buffers are not full
-		bool first_desired_recieved = false, first_marker_recieved = false; // first messages recieved
-		
-		/********** End Tracking Controller Declarations **********/
+		bool first_desired_recieved = false, first_marker_recieved = false, first_decomp_recieved = false; // first messages recieved
+		bool desired_recieved = false, marker_recieved = false, decomp_recieved = false; // messages recieved
+		/******************** End Controler paramerters ********************/
 		
 		/********** Begin output message **********/
 		geometry_msgs::Twist velocity_command;
 		geometry_msgs::Twist command_from_tracking;
 		geometry_msgs::Twist command_from_xbox;
-		
 		/********** End output message **********/
 		
 		// constructor for the controller
@@ -261,38 +189,47 @@ class QuadController
 				Us.push_back(tf::Vector3(0,0,0));
 			}
 			
-			//output_file.open(output_file_name, std::fstream::out | std::fstream::app);
-			//if (output_file.is_open())
-			//{
-				//output_file << "zhat," 
-							//<< "m," 
-							//<< "md,"
-							//<< "uv,"
-							//<< "uvd,"
-							//<< "q,"
-							//<< "qd,"
-							//<< "alphar,"
-							//<< "alphard,"
-							//<< "pe,"
-							//<< "ped,"
-							//<< "ev,"
-							//<< "qTilde,"
-							//<< "vcd,"
-							//<< "wcd,"
-							//<< "Lv,"
-							//<< "Lvd,"
-							//<< "pedDot,"
-							//<< "wc,"
-							//<< "phi,"
-							//<< "vc"
-							//<< "camPosDot,"
-							//<< "camOrientDot,"
-							//<< "desCamPosDot,"
-							//<< "desCamOrientDot,"
-							//<< "zhatDot"
-							//<< "\n";
-				//output_file.close();
-			//}
+			// initializing the integrating samples to 0
+			for (int ii = 0; ii < number_of_integrating_samples; ii++)
+			{
+				trapz_timestamps.push_back(0.0);
+				Ev_samples.push_back(tf::Vector3(0,0,0));
+				Phi_samples.push_back(tf::Vector3(0,0,0));
+				Uvar_samples.push_back(tf::Vector3(0,0,0));
+			}
+			
+			if (write_to_file)
+			{
+				output_file.open(output_file_name, std::fstream::out | std::fstream::app);
+			}
+			if (output_file.is_open())
+			{
+				output_file << "prx," << "pry," << "prz,"
+							<< "prdx," << "prdy," << "prdz,"
+							<< "mrx," << "mry," << "mrz,"
+							<< "mrdx," << "mrdy," << "mrdz,"
+							<< "pex," << "pey," << "pez,"
+							<< "pedx," << "pedy," << "pedz,"
+							<< "qw," << "qx," << "qy," << "qz,"
+							<< "qdw," << "qdx," << "qdy," << "qdz,"
+							<< "qtildew," << "qtildex," << "qtildey," << "qtildez,"
+							<< "evx," << "evy," << "evz,"
+							<< "phix," << "phiy," << "phiz,"
+							<< "vcx," << "vcy," << "vcz,"
+							<< "wcx," << "wcy," << "wcz,"
+							<< "vcdx," << "vcdy," << "vcdz,"
+							<< "wcdx," << "wcdy," << "wcdz,"
+							<< "Evx," << "Evy," << "Evz,"
+							<< "Phix," << "Phiy," << "Phiz,"
+							<< "Uvarx," << "Uvary," << "Uvarz,"
+							<< "EvPhix," << "EvPhix," << "EvPhix,"
+							<< "EvPhisvd,"
+							<< "Ux," << "Uy," << "Uz,"
+							<< "z_hat_dot,"
+							<< "z_hat"
+							<< "\n";
+				output_file.close();
+			}
 		}
 		
 		/********** callback for the current pose message, position and orientation of F wrt Fstar **********/
@@ -310,6 +247,14 @@ class QuadController
 			alpha_green = msg.alpha_green.data;
 			alpha_cyan = msg.alpha_cyan.data;
 			alpha_purple = msg.alpha_purple.data;
+			
+			if (!first_decomp_recieved)
+			{
+				start_time = current_timestamp;
+				first_decomp_recieved = true;
+			}
+			decomp_recieved = true;
+			current_timestamp -= start_time;
 			// call the velocity when a new decomp comes in
 			output_velocity_command();
 			
@@ -327,14 +272,10 @@ class QuadController
 			pgd_gm = msg.green_circle;
 			pcd_gm = msg.cyan_circle;
 			ppd_gm = msg.purple_circle;
-			zrd = msg.height.data;
 			wcd_gm = msg.omega_cd;
 			vcd_gm = msg.v_cd;
-			
-			if (!first_desired_recieved)
-			{	
-				first_desired_recieved = true;
-			}
+
+			desired_recieved = true;
 		}
 		
 		/********** callback for the current image points **********/
@@ -345,12 +286,8 @@ class QuadController
 			pg_gm = msg.current_points.green_circle;
 			pc_gm = msg.current_points.cyan_circle;
 			pp_gm = msg.current_points.purple_circle;
-			
-			if (!first_marker_recieved)
-			{
-				first_marker_recieved = true;
-			}
-			
+
+			marker_recieved = true;
 		}
 		
 		/********** callback for the controller **********/
@@ -409,7 +346,7 @@ class QuadController
 		{
 			// current position output, if alpha is greater than 0, it is a valid position and will continue
 			std::cout << std::endl << std::endl << "current alpha red:\t" << alpha_red << std::endl;
-			if (alpha_red > 0 && first_desired_recieved && first_marker_recieved)
+			if (alpha_red > 0 && desired_recieved && marker_recieved && decomp_recieved)
 			{
 				get_wc();// getting the angular velocity command
 				get_vc();// getting the linear velocity command
@@ -421,6 +358,7 @@ class QuadController
 				std::cout << "negative alpha_red" << std::endl;
 				command_from_tracking.linear.x = 0; command_from_tracking.linear.y = 0; command_from_tracking.linear.z = 0; command_from_tracking.angular.z = 0;// output velocity from tracking message as zeros
 			}
+			
 		}
 		
 		/********** Calculate the value for the angular velocity command wc, angular velocity of F wrt Fstar**********/
@@ -428,6 +366,7 @@ class QuadController
 		{
 			bool display_wc_calc_steps = true;// display all the calculation steps
 			tf::Quaternion Qerror_temp = Qd_tf.inverse()*Q_tf;// rotational error
+			Q_error_tf = Qerror_temp;// rotational error
 			tf::Vector3 Qerror_ijk_temp(Qerror_temp.getX(),Qerror_temp.getY(),Qerror_temp.getZ());// temp to hold the rotational error ijk terms
 			tf::Vector3 wcd_temp(wcd_gm.x, wcd_gm.y, wcd_gm.z);
 			wcd = wcd_temp;// getting the desired angular velocity
@@ -795,8 +734,6 @@ class QuadController
 		void update_zr_star_hat()
 		{
 			bool display_zr_star_hat_calc_steps = true;// output the calcs
-			calculate_zr_star_hat_dot();// calculate zr_star_hat_dot
-			
 			// get the time difference and update
 			// if it is the first time updating will just equate the time stamp and leave but if it is beyond that will calculate using euler integration
 			if (first_time_update)
@@ -804,6 +741,7 @@ class QuadController
 				first_time_update = false;
 				last_timestamp = current_timestamp;
 			}
+			calculate_zr_star_hat_dot();// calculate zr_star_hat_dot
 			std::cout << "zr star hat before update: " << zr_star_hat << std::endl;
 			std::cout << "zr star hat dot: " << zr_star_hat_dot << std::endl;
 			std::cout << "zr star hat time difference scaled: " << (current_timestamp - last_timestamp) << std::endl;
@@ -851,7 +789,7 @@ class QuadController
 		/********** update the estimate for zr_star_hat_dot **********/
 		void calculate_zr_star_hat_dot()
 		{
-			shift_sample_set(trapz_timestamps, current_timestamp, number_of_integrating_samples);// update the time for trapz
+			shift_sample_set(trapz_timestamps, current_timestamp);// update the time for trapz
 			get_Ev();// get the new Ev
 			get_Phi();// get the new Phi
 			get_U();// get the new U
@@ -868,12 +806,9 @@ class QuadController
 				{
 					std::cout << "switching out index: " << curr_Ev_minus_Phi_svd_min_index << std::endl;
 					// replace the previous min from the history
-					Evs_minus_Phis.erase(Evs_minus_Phis.begin() + curr_Ev_minus_Phi_svd_min_index);
-					Evs_minus_Phis_svds.erase(Evs_minus_Phis_svds.begin() + curr_Ev_minus_Phi_svd_min_index);
-					Us.erase(Us.begin() + curr_Ev_minus_Phi_svd_min_index);
-					shift_sample_set(Evs_minus_Phis, Ev_minus_Phi, number_of_samples);
-					shift_sample_set(Evs_minus_Phis_svds, Ev_minus_Phi_svd, number_of_samples);
-					shift_sample_set(Us, U, number_of_samples);
+					Evs_minus_Phis.at(curr_Ev_minus_Phi_svd_min_index) = Ev_minus_Phi;
+					Evs_minus_Phis_svds.at(curr_Ev_minus_Phi_svd_min_index) = Ev_minus_Phi_svd;
+					Us.at(curr_Ev_minus_Phi_svd_min_index) = U;
 				}
 				else
 				{
@@ -881,13 +816,16 @@ class QuadController
 				}
 				// getting the summation
 				zr_star_hat_dot_sum = 0;
+				
 				tf::Vector3 zr_star_hat_dot_term2_temp = tf::Vector3(0,0,0);
-				// sum_from_k=1_to_n( transpose(Ev(k)-Phi(k))*(-(Ev(k)-Phi(k))*z_star_hat - U(k)) )
+				std::cout << "size: " << Evs_minus_Phis.size() << std::endl;
 				for (int ii = 0; ii < Evs_minus_Phis.size(); ii++)
 				{
+					std::cout << ii << std::endl;
 					zr_star_hat_dot_term2_temp = -(Evs_minus_Phis.at(ii)*zr_star_hat) - Us.at(ii);
 					zr_star_hat_dot_sum += (Evs_minus_Phis.at(ii)).dot(zr_star_hat_dot_term2_temp);
 				}
+				
 
 			}
 			else
@@ -895,6 +833,7 @@ class QuadController
 				zr_star_hat_dot_sum = 0;
 			}
 			//z_star_hat_dot = gamma_1*transpose(ev)*phi + gamma1*gamma2*zr_star_hat_dot_sum
+			
 			zr_star_hat_dot = gamma_1*ev.dot(phi) + gamma_1*gamma_2*zr_star_hat_dot_sum;
 			
 		}
@@ -902,7 +841,7 @@ class QuadController
 		/********** calculating the value for Ev **********/
 		void get_Ev()
 		{
-			shift_sample_set(Ev_samples, ev, number_of_samples);// shifting the buffer
+			shift_sample_set(Ev_samples, ev);// shifting the buffer
 			// getting Ev, it is the difference between the last and first, if only 1 element, just use the first
 			if (Ev_samples.size() > 1)
 			{
@@ -913,7 +852,7 @@ class QuadController
 		/********** calculating the value for big Phi **********/
 		void get_Phi()
 		{
-			shift_sample_set(Phi_samples, phi, number_of_integrating_samples);// phi has already been calculated earlier so just need to put onto the deque then integrate
+			shift_sample_set(Phi_samples, phi);// phi has already been calculated earlier so just need to put onto the deque then integrate
 			calculate_integral(Phi, Phi_samples, trapz_timestamps);// getting the integral to calculate Phi
 		}
 		
@@ -921,35 +860,22 @@ class QuadController
 		void get_U()
 		{
 			Uvar = alpha_red*(Lv*vc);// using a new variable uvar to represent the multiplication used to get the integral for U
-			shift_sample_set(Uvar_samples,Uvar,number_of_integrating_samples);// putting the Uvars onto the Uvar deque
+			shift_sample_set(Uvar_samples,Uvar);// putting the Uvars onto the Uvar deque
 			calculate_integral(U, Uvar_samples, trapz_timestamps);// getting U, the integral of Uvar_samples
 		}
 		
 		/********** function to calculate the integral of a Vector3 using trapizoidal rule **********/
 		void calculate_integral(tf::Vector3 &integral, std::deque<tf::Vector3> &function_values, std::deque<double> &time_values)
 		{
-			integral.setValue(0,0,0);
-			//tf::Vector3 temp_integral {0,0,0};
-			// if the two deques are the same size will do the integral
-			if (function_values.size() == time_values.size())
+			tf::Vector3 temp_integral = tf::Vector3(0,0,0);
+			if (function_values.size() > 1)
 			{
-				// if there is more than one element in the deque then will do the integral over the points, otherwise will just return it for the one
-				if (function_values.size() > 1)
+				for (int ii = 0; ii < function_values.size() - 1; ii++)
 				{
-					//std::cout << "start integrating";
-					for (int ii = 0; ii < function_values.size() - 1; ii++)
-					{
-						//temp_integral = 
-						integral += 0.5*(time_values[ii+1] - time_values[ii]) * (function_values[ii+1] + function_values[ii]);
-						//std::cout << "\ncurrent integral:" 
-								  //<< "\n\tx:\t" << integral.getX();
-								
-					}
-					//std::cout << "\nend integrating" << std::endl;
+					temp_integral += 0.5*((time_values.at(ii+1) - time_values.at(ii)) * (function_values.at(ii+1) + function_values.at(ii)));
 				}
-				
 			}
-			
+			integral = temp_integral;
 		}
 		
 		// outputs the desired command which will be either the tracking controller or the xbox
@@ -977,47 +903,51 @@ class QuadController
 				//velocity_command = command_from_tracking;
 			//}
 			//std::cout << "command from controller:\n" << command_from_xbox << std::endl;
-			generate_velocity_command_from_tracking();
-			velocity_command = command_from_tracking;
-			cmd_vel_pub.publish(velocity_command);
-			z_ref_pub.publish(zr_star_hat_msg);
-			
-			//output_file.open(output_file_name, std::fstream::out | std::fstream::app);
-			//if (output_file.is_open())
-			//{
-				//output_file << zr_star_hat << "," 
-							//<< mr 
-							//<< mrd
-							//<< pr
-							//<< prd
-							//<< Q_tf
-							//<< Qd_tf
-							//<< alpha_red
-							//<< alpha_red_d
-							//<< pe
-							//<< ped
-							//<< ev
-							//<< Q_error
-							//<< vcd
-							//<< wcd
-							//<< Lv
-							//<< Lvd
-							//<< ped_dot
-							//<< wc
-							//<< phi
-							//<< vc
-							//<< "camPosDot,"
-							//<< "camOrientDot,"
-							//<< "desCamPosDot,"
-							//<< "desCamOrientDot,"
-							//<< "zhatDot"
-							//<< "\n";
-				//output_file.close();
-			//}
-			
+			if (alpha_red > 0 && desired_recieved && marker_recieved && decomp_recieved)
+			{
+				generate_velocity_command_from_tracking();
+				velocity_command = command_from_tracking;
+				cmd_vel_pub.publish(velocity_command);
+				z_ref_pub.publish(zr_star_hat_msg);
+						
+				if (write_to_file)
+				{
+					output_file.open(output_file_name, std::fstream::out | std::fstream::app);
+				}
+				if (output_file.is_open())
+				{
+					output_file << pr.getX() << "," << pr.getY() << "," << pr.getZ() << ","
+								<< prd.getX() << "," << prd.getY() << "," << prd.getZ() << ","
+								<< mr.getX() << "," << mr.getY() << "," << mr.getZ() << ","
+								<< mrd.getX() << "," << mrd.getY() << "," << mrd.getZ() << ","
+								<< pe.getX() << "," << pe.getY() << "," << pe.getZ() << ","
+								<< ped.getX() << "," << ped.getY() << "," << ped.getZ() << ","
+								<< Q_tf.getW() << "," << Q_tf.getX() << "," << Q_tf.getY() << "," << Q_tf.getZ() << ","
+								<< Qd_tf.getW() << "," << Qd_tf.getX() << "," << Qd_tf.getY() << "," << Qd_tf.getZ() << ","
+								<< Q_error_tf.getW() << "," << Q_error_tf.getX() << "," << Q_error_tf.getY() << "," << Q_error_tf.getZ() << ","
+								<< ev.getX() << "," << ev.getY() << "," << ev.getZ() << ","
+								<< phi.getX() << "," << phi.getY() << "," << phi.getZ() << ","
+								<< vc.getX() << "," << vc.getY() << "," << vc.getZ() << ","
+								<< wc.getX() << "," << wc.getY() << "," << wc.getZ() << ","
+								<< vcd.getX() << "," << vcd.getY() << "," << vcd.getZ() << ","
+								<< wcd.getX() << "," << wcd.getY() << "," << wcd.getZ() << ","
+								<< Ev.getX() << "," << Ev.getY() << "," << Ev.getZ() << ","
+								<< Phi.getX() << "," << Phi.getY() << "," << Phi.getZ() << ","
+								<< Uvar.getX() << "," << Uvar.getY() << "," << Uvar.getZ() << ","
+								<< Ev_minus_Phi.getX() << "," << Ev_minus_Phi.getY() << "," << Ev_minus_Phi.getZ() << ","
+								<< Ev_minus_Phi_svd << ","
+								<< U.getX() << "," << U.getY() << "," << U.getZ() << ","
+								<< zr_star_hat_dot << ","
+								<< zr_star_hat
+								<< "\n";
+					output_file.close();
+				}
+				
+				desired_recieved = false;
+				decomp_recieved = false;
+				marker_recieved = false;
+			}
 		}
-		
-		
 };
 
 // main
@@ -1025,12 +955,8 @@ int main(int argc, char** argv)
 {   
 	// initialize node
 	ros::init(argc,argv,"quad_controller_node");
-	
 	// initialize the controller    
 	QuadController quad_controller;
-	
     ros::spin();
-	
-    
     return 0;
 }

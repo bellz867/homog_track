@@ -5,9 +5,9 @@
     <!-- Sim Node-->
     <node pkg="homog_track" type="simulator_node" name="simulator_node" />
     
-    <!-- Decompose Node-->
+    <!-- Decompose Node
     <node pkg="homog_track" type="decomp_node" name="decomp_node" />
-
+	-->
     <!-- Desired Node-->
     <node pkg="homog_track" type="desired_camera_node" name="desired_camera_node" />
     

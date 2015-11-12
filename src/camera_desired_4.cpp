@@ -81,7 +81,7 @@ class DesiredCamera
 			
 			/********** initialize the transform of the desired wrt world  **********/
 			double z_init = 2; //starting desired height
-			double cam_a0 = 0;
+			double cam_a0 = 0;// starting desired angle
 			desired_radius = 1;// desired radius in meters
 			desired_period = 30;
 			desired_wrt_world.setOrigin(tf::Vector3(desired_radius,0,z_init));//origin
@@ -256,7 +256,7 @@ class DesiredCamera
 			listener.lookupTransform("reference_image","desired_image",last_virtual_update_time, desired_wrt_reference);
 			
 			Q_df = desired_wrt_reference.getRotation();
-			Q_df_negated = tf::Quaternion(-Q_df.getX(),-Q_df.getY(),-Q_df.getZ(),Q_df.getW()); // getting the negated version of the quaternion for the check
+			Q_df_negated = tf::Quaternion(-Q_df.getX(),-Q_df.getY(),-Q_df.getZ(),-Q_df.getW()); // getting the negated version of the quaternion for the check
 			// checking if the quaternion has flipped
 			double Q_norm_current_diff = std::sqrt(std::pow(Q_df.getX() - Q_df_last.getX(),2.0)
 										  + std::pow(Q_df.getY() - Q_df_last.getY(),2.0) 
@@ -266,16 +266,147 @@ class DesiredCamera
 										  + std::pow(Q_df_negated.getY() - Q_df_last.getY(),2.0) 
 										  + std::pow(Q_df_negated.getZ() - Q_df_last.getZ(),2.0) 
 										  + std::pow(Q_df_negated.getW() - Q_df_last.getW(),2.0));
-			//if (Q_norm_current_diff > Q_norm_negated_diff)
-			//{
-				//Q_df = Q_df_negated;
-			//}
+			
+			if (display_calc_steps)
+			{
+				//std::cout << "time diff: " << time_diff << std::endl;
+				//std::cout << "vcd:"
+						  //<< "\n x: " << vcd.getX()
+						  //<< " y: " << vcd.getY()
+						  //<< " z: " << vcd.getZ()
+						  //<< std::endl;
+				//std::cout << "wcd:"
+						  //<< "\n x: " << wcd.at<double>(0,0)
+						  //<< " y: " << wcd.at<double>(1,0)
+						  //<< " z: " << wcd.at<double>(2,0)
+						  //<< std::endl;
+				//std::cout << "Derivative, Rotation, Fd wrt World:\n"
+						  ////<< Q_dw_dot << std::endl;
+				//std::cout << "Norm of Q_dw: " << Q_dw_new_norm << std::endl;
+				
+				//std::cout << "Derivative, Origin, Fd wrt World:"
+						  //<< "\n x: " << P_dw_dot.getX()
+						  //<< " y: " << P_dw_dot.getY()
+						  //<< " z: " << P_dw_dot.getZ()
+						  //<< std::endl;
+				//std::cout << "Derivative, Origin, Fd wrt World time time diff:"
+						  //<< "\n x: " << (P_dw_dot*time_diff).getX()
+						  //<< " y: " << (P_dw_dot*time_diff).getY()
+						  //<< " z: " << (P_dw_dot*time_diff).getZ()
+						  //<< std::endl;
+				//std::cout << "Old Origin, Fd wrt World:"
+						  //<< "\n x: " << P_dw.getX()
+						  //<< " y: " << P_dw.getY()
+						  //<< " z: " << P_dw.getZ()
+						  //<< std::endl;
+				//std::cout << "New Origin, Fd wrt World:"
+						  //<< "\n x: " << P_dw_new.getX()
+						  //<< " y: " << P_dw_new.getY()
+						  //<< " z: " << P_dw_new.getZ()
+						  //<< std::endl;
+						  
+				std::cout << "Rotation, Fd wrt Fstar:" 
+						  << "\n x: " << Q_df.getX() 
+						  << " y: " << Q_df.getY()
+						  << " z: " << Q_df.getZ()
+						  << " w: " << Q_df.getW()
+						  << std::endl;
+				std::cout << "Rotation, Fd wrt Fstar negated:" 
+						  << "\n x: " << Q_df_negated.getX() 
+						  << " y: " << Q_df_negated.getY()
+						  << " z: " << Q_df_negated.getZ()
+						  << " w: " << Q_df_negated.getW()
+						  << std::endl;
+				std::cout << "Rotation, Fd wrt Fstar last:" 
+						  << "\n x: " << Q_df_last.getX() 
+						  << " y: " << Q_df_last.getY()
+						  << " z: " << Q_df_last.getZ()
+						  << " w: " << Q_df_last.getW()
+						  << std::endl;
+				std::cout << "Current - Last norm: " <<  Q_norm_current_diff << std::endl;
+				std::cout << "Negated - Last norm: " <<  Q_norm_negated_diff << std::endl;
+				//std::cout << "Origin, Fstar wrt World:" 
+						  //<< "\n x: " << reference_wrt_world.getOrigin().getX()
+						  //<< " y: " << reference_wrt_world.getOrigin().getY()
+						  //<< " z: " << reference_wrt_world.getOrigin().getZ()
+						  //<< std::endl;
+				//std::cout << "Rotation, Fd wrt World:" 
+						  //<< "\n x: " << desired_wrt_world.getRotation().getX() 
+						  //<< " y: " << desired_wrt_world.getRotation().getY()
+						  //<< " z: " << desired_wrt_world.getRotation().getZ()
+						  //<< " w: " << desired_wrt_world.getRotation().getW()
+						  //<< std::endl;
+				//std::cout << "Origin, Fd wrt World:" 
+						  //<< "\n x: " << desired_wrt_world.getOrigin().getX()
+						  //<< " y: " << desired_wrt_world.getOrigin().getY()
+						  //<< " z: " << desired_wrt_world.getOrigin().getZ()
+						  //<< std::endl;
+				//std::cout << "Origin, Red wrt Fd:" 
+						  //<< "\n x: " << mrd_bar.getX()
+						  //<< " y: " << mrd_bar.getY()
+						  //<< " z: " << mrd_bar.getZ()
+						  //<< std::endl;
+				//std::cout << "Origin, Green wrt Fd:" 
+						  //<< "\n x: " << mgd_bar.getX()
+						  //<< " y: " << mgd_bar.getY()
+						  //<< " z: " << mgd_bar.getZ()
+						  //<< std::endl;
+				//std::cout << "Origin, Cyan wrt Fd:" 
+						  //<< "\n x: " << mcd_bar.getX()
+						  //<< " y: " << mcd_bar.getY()
+						  //<< " z: " << mcd_bar.getZ()
+						  //<< std::endl;
+				//std::cout << "Origin, Purple wrt Fd:" 
+						  //<< "\n x: " << mpd_bar.getX()
+						  //<< " y: " << mpd_bar.getY()
+						  //<< " z: " << mpd_bar.getZ()
+						  //<< std::endl;
+				//std::cout << "Pixels, Red in Fd:" 
+						  //<< "\n x: " << prd.getX()
+						  //<< " y: " << prd.getY()
+						  //<< " z: " << prd.getZ()
+						  //<< std::endl;
+				//std::cout << "Pixels, Green in Fd:" 
+						  //<< "\n x: " << pgd.getX()
+						  //<< " y: " << pgd.getY()
+						  //<< " z: " << pgd.getZ()
+						  //<< std::endl;
+				//std::cout << "Pixels, Cyan in Fd:" 
+						  //<< "\n x: " << pcd.getX()
+						  //<< " y: " << pcd.getY()
+						  //<< " z: " << pcd.getZ()
+						  //<< std::endl;
+				//std::cout << "Pixels, Purple in Fd:" 
+						  //<< "\n x: " << ppd.getX()
+						  //<< " y: " << ppd.getY()
+						  //<< " z: " << ppd.getZ()
+						  //<< std::endl;
+			}
+			
+			if (Q_norm_current_diff > Q_norm_negated_diff)
+			{
+				Q_df = Q_df_negated;
+			}
+			
 			Q_df_last = Q_df;// updating the last
 			desired_wrt_reference.setRotation(Q_df);
+			std::cout << "Rotation, Fd wrt Fstar:" 
+						  << "\n x: " << Q_df.getX() 
+						  << " y: " << Q_df.getY()
+						  << " z: " << Q_df.getZ()
+						  << " w: " << Q_df.getW()
+						  << std::endl;
+			std::cout << "Rotation, Fd wrt Fstar from transform:" 
+						  << "\n x: " << desired_wrt_reference.getRotation().getX() 
+						  << " y: " << desired_wrt_reference.getRotation().getY()
+						  << " z: " << desired_wrt_reference.getRotation().getZ()
+						  << " w: " << desired_wrt_reference.getRotation().getW()
+						  << std::endl;
+			
 			// output transform and message
 			desired_msg.header.stamp = last_virtual_update_time;
 			desired_msg.pose.position.x = desired_wrt_reference.getOrigin().getX(); desired_msg.pose.position.y = desired_wrt_reference.getOrigin().getY(); desired_msg.pose.position.z = desired_wrt_world.getOrigin().getZ(); // update position
-			desired_msg.pose.orientation.x = desired_wrt_reference.getRotation().getX(); desired_msg.pose.orientation.y = desired_wrt_reference.getRotation().getY(); desired_msg.pose.orientation.z = desired_wrt_reference.getRotation().getZ(); desired_msg.pose.orientation.w = desired_wrt_reference.getRotation().getW();// update orientation
+			desired_msg.pose.orientation.x = Q_df.getX(); desired_msg.pose.orientation.y = Q_df.getY(); desired_msg.pose.orientation.z = Q_df.getZ(); desired_msg.pose.orientation.w = Q_df.getW();// update orientation
 			desired_msg.header.frame_id = "desired wrt_reference";
 			desired_msg.height.data = desired_wrt_world.getOrigin().getZ();
 			desired_msg.updating_desired = true;
@@ -285,109 +416,7 @@ class DesiredCamera
 			desired_msg.purple_circle.x = ppd.getX(); desired_msg.purple_circle.y = ppd.getY(); desired_msg.purple_circle.z = ppd.getZ();
 			desired_msg.omega_cd.x = wcd.at<double>(0,0); desired_msg.omega_cd.y = wcd.at<double>(1,0); desired_msg.omega_cd.z = wcd.at<double>(2,0);
 			desired_msg.v_cd.x = vcd.getX(); desired_msg.v_cd.y = vcd.getY(); desired_msg.v_cd.z = vcd.getZ();
-			desired_camera_pub.publish(desired_msg);			
-			
-			if (display_calc_steps)
-			{
-				std::cout << "time diff: " << time_diff << std::endl;
-				std::cout << "vc:"
-						  << "\n x: " << vcd.getX()
-						  << " y: " << vcd.getY()
-						  << " z: " << vcd.getZ()
-						  << std::endl;
-				std::cout << "wcd:"
-						  << "\n x: " << wcd.at<double>(0,0)
-						  << " y: " << wcd.at<double>(1,0)
-						  << " z: " << wcd.at<double>(2,0)
-						  << std::endl;
-				std::cout << "Derivative, Rotation, Fd wrt World:\n"
-						  << Q_dw_dot << std::endl;
-				std::cout << "Norm of Q_dw: " << Q_dw_new_norm << std::endl;
-				
-				std::cout << "Derivative, Origin, Fd wrt World:"
-						  << "\n x: " << P_dw_dot.getX()
-						  << " y: " << P_dw_dot.getY()
-						  << " z: " << P_dw_dot.getZ()
-						  << std::endl;
-				std::cout << "Derivative, Origin, Fd wrt World time time diff:"
-						  << "\n x: " << (P_dw_dot*time_diff).getX()
-						  << " y: " << (P_dw_dot*time_diff).getY()
-						  << " z: " << (P_dw_dot*time_diff).getZ()
-						  << std::endl;
-				std::cout << "Old Origin, Fd wrt World:"
-						  << "\n x: " << P_dw.getX()
-						  << " y: " << P_dw.getY()
-						  << " z: " << P_dw.getZ()
-						  << std::endl;
-				std::cout << "New Origin, Fd wrt World:"
-						  << "\n x: " << P_dw_new.getX()
-						  << " y: " << P_dw_new.getY()
-						  << " z: " << P_dw_new.getZ()
-						  << std::endl;
-						  
-				std::cout << "Rotation, Fstar wrt World:" 
-						  << "\n x: " << reference_wrt_world.getRotation().getX() 
-						  << " y: " << reference_wrt_world.getRotation().getY()
-						  << " z: " << reference_wrt_world.getRotation().getZ()
-						  << " w: " << reference_wrt_world.getRotation().getW()
-						  << std::endl;
-				std::cout << "Origin, Fstar wrt World:" 
-						  << "\n x: " << reference_wrt_world.getOrigin().getX()
-						  << " y: " << reference_wrt_world.getOrigin().getY()
-						  << " z: " << reference_wrt_world.getOrigin().getZ()
-						  << std::endl;
-				std::cout << "Rotation, Fd wrt World:" 
-						  << "\n x: " << desired_wrt_world.getRotation().getX() 
-						  << " y: " << desired_wrt_world.getRotation().getY()
-						  << " z: " << desired_wrt_world.getRotation().getZ()
-						  << " w: " << desired_wrt_world.getRotation().getW()
-						  << std::endl;
-				std::cout << "Origin, Fd wrt World:" 
-						  << "\n x: " << desired_wrt_world.getOrigin().getX()
-						  << " y: " << desired_wrt_world.getOrigin().getY()
-						  << " z: " << desired_wrt_world.getOrigin().getZ()
-						  << std::endl;
-				std::cout << "Origin, Red wrt Fd:" 
-						  << "\n x: " << mrd_bar.getX()
-						  << " y: " << mrd_bar.getY()
-						  << " z: " << mrd_bar.getZ()
-						  << std::endl;
-				std::cout << "Origin, Green wrt Fd:" 
-						  << "\n x: " << mgd_bar.getX()
-						  << " y: " << mgd_bar.getY()
-						  << " z: " << mgd_bar.getZ()
-						  << std::endl;
-				std::cout << "Origin, Cyan wrt Fd:" 
-						  << "\n x: " << mcd_bar.getX()
-						  << " y: " << mcd_bar.getY()
-						  << " z: " << mcd_bar.getZ()
-						  << std::endl;
-				std::cout << "Origin, Purple wrt Fd:" 
-						  << "\n x: " << mpd_bar.getX()
-						  << " y: " << mpd_bar.getY()
-						  << " z: " << mpd_bar.getZ()
-						  << std::endl;
-				std::cout << "Pixels, Red in Fd:" 
-						  << "\n x: " << prd.getX()
-						  << " y: " << prd.getY()
-						  << " z: " << prd.getZ()
-						  << std::endl;
-				std::cout << "Pixels, Green in Fd:" 
-						  << "\n x: " << pgd.getX()
-						  << " y: " << pgd.getY()
-						  << " z: " << pgd.getZ()
-						  << std::endl;
-				std::cout << "Pixels, Cyan in Fd:" 
-						  << "\n x: " << pcd.getX()
-						  << " y: " << pcd.getY()
-						  << " z: " << pcd.getZ()
-						  << std::endl;
-				std::cout << "Pixels, Purple in Fd:" 
-						  << "\n x: " << ppd.getX()
-						  << " y: " << ppd.getY()
-						  << " z: " << ppd.getZ()
-						  << std::endl;
-			}
+			desired_camera_pub.publish(desired_msg);
 		}
 };
 
@@ -400,7 +429,7 @@ int main(int argc, char** argv)
 	// initialize the controller    
 	DesiredCamera desired_camera;
 
-	ros::Rate loop_rate(300);
+	ros::Rate loop_rate(1000);
 	while (ros::ok())
 	{
 		desired_camera.update_pixels();
