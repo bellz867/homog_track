@@ -14,7 +14,7 @@
 #include <opencv2/opencv.hpp>
 #include <tf/transform_broadcaster.h>
 #include <tf/transform_listener.h>
-
+#include <homog_track/ImageProcessingMsg.h>
 
 // function to push values onto a deque and if it is over some length will remove the first and then push it
 template <typename sample_set_type> void shift_sample_set(std::deque<sample_set_type> &sample_set, sample_set_type &new_sample)
@@ -22,6 +22,163 @@ template <typename sample_set_type> void shift_sample_set(std::deque<sample_set_
 	sample_set.pop_front();
 	sample_set.push_back(new_sample);
 }
+
+/********** Processes incoming images and outputs the pixels **********/
+class ImageProcessing
+{
+	public:
+		/********** node and topics **********/
+		ros::NodeHandle nh;// handle for the image processing
+		ros::Publisher pixel_pub;// pixel publisher
+		ros::Subscriber cam_vel_sub;// camera velocity subscriber
+		tf::TransformBroadcaster br;
+		tf::TransformListener listener;
+		
+		/********** Points Declarations **********/
+		tf::Vector3 P_red_wrt_world, P_green_wrt_world, P_cyan_wrt_world, P_purple_wrt_world;// homography points wrt world
+		tf::Transform red_wrt_world, green_wrt_world, cyan_wrt_world, purple_wrt_world;//transforms for the marker points
+		
+		/********** Reference Declarations **********/
+		tf::Vector3 mr_bar_ref, mg_bar_ref, mc_bar_ref, mp_bar_ref;// points wrt reference
+		tf::Vector3 pr_ref, pg_ref, pc_ref, pp_ref;// pixels wrt reference
+		tf::Transform reference_wrt_world; // transform for reference camera
+		
+		/********** Camera Declarations **********/
+		tf::Vector3 mr_bar, mg_bar, mc_bar, mp_bar;// points wrt camera
+		tf::Vector3 mr, mg, mc, mp;// normalized points wrt camera
+		tf::Vector3 pr, pg, pc, pp;// points pixels wrt camera
+		geometry_msgs::Point pr_gm, pg_gm, pc_gm, pp_gm;// points pixels wrt camera for message
+		tf::Transform camera_wrt_world; // transform for camera
+		tf::Matrix3x3 A = tf::Matrix3x3(1,0,0,
+										0,1,0,
+										0,0,1);// camera matrix
+		
+		ImageProcessing()
+		{
+			/********** topics **********/
+			pixel_pub = nh.advertise<homog_track::ImageProcessingMsg>("camera_pixels", 1);
+			cam_vel_sub = nh.subscribe("/cmd_vel", 1, &ImageProcessing::update_camera_pixels, this);
+			
+			/********** markers wrt world **********/
+			P_red_wrt_world = tf::Vector3(-0.05,-0.05,0); P_green_wrt_world = tf::Vector3(-0.05,0.05,0); P_cyan_wrt_world = tf::Vector3(0.05,0.05,0); P_purple_wrt_world = tf::Vector3(0.05,-0.05,0);// homography points wrt world
+			red_wrt_world.setIdentity(); red_wrt_world.setOrigin(P_red_wrt_world);//red
+			green_wrt_world.setIdentity(); green_wrt_world.setOrigin(P_green_wrt_world);//green
+			cyan_wrt_world.setIdentity(); cyan_wrt_world.setOrigin(P_cyan_wrt_world);//cyan
+			purple_wrt_world.setIdentity(); purple_wrt_world.setOrigin(P_purple_wrt_world);//purple
+
+			/********** reference wrt world  **********/
+			double z_ref = 2; //reference height
+			reference_wrt_world.setOrigin(tf::Vector3(0,0,z_ref));//origin
+			tf::Matrix3x3 R_fw(0,1,0,
+ 							   1,0,0,
+							   0,0,-1);// rotation of reference wrt world
+			tf::Quaternion Q_fw;// as a quaternion
+			R_fw.getRotation(Q_fw);// initialize quaternion
+			reference_wrt_world.setRotation(Q_fw);// set the rotation
+			
+			/********** markers wrt reference **********/
+			tf::Vector3 temp_v;
+			tf::Quaternion temp_Q;
+			temp_v = P_red_wrt_world-reference_wrt_world.getOrigin(); temp_Q = ((reference_wrt_world.getRotation().inverse())*tf::Quaternion(temp_v.getX(),temp_v.getY(),temp_v.getZ(),0.0))*reference_wrt_world.getRotation(); mr_bar_ref = tf::Vector3(temp_Q.getX(),temp_Q.getY(),temp_Q.getZ()); // red
+			temp_v = P_green_wrt_world-reference_wrt_world.getOrigin(); temp_Q = ((reference_wrt_world.getRotation().inverse())*tf::Quaternion(temp_v.getX(),temp_v.getY(),temp_v.getZ(),0.0))*reference_wrt_world.getRotation(); mg_bar_ref = tf::Vector3(temp_Q.getX(),temp_Q.getY(),temp_Q.getZ()); // green
+			temp_v = P_cyan_wrt_world-reference_wrt_world.getOrigin(); temp_Q = ((reference_wrt_world.getRotation().inverse())*tf::Quaternion(temp_v.getX(),temp_v.getY(),temp_v.getZ(),0.0))*reference_wrt_world.getRotation(); mc_bar_ref = tf::Vector3(temp_Q.getX(),temp_Q.getY(),temp_Q.getZ()); // cyan
+			temp_v = P_purple_wrt_world-reference_wrt_world.getOrigin(); temp_Q = ((reference_wrt_world.getRotation().inverse())*tf::Quaternion(temp_v.getX(),temp_v.getY(),temp_v.getZ(),0.0))*reference_wrt_world.getRotation(); mp_bar_ref = tf::Vector3(temp_Q.getX(),temp_Q.getY(),temp_Q.getZ()); // purple
+			pr_ref = A*((1/mr_bar_ref.getZ())*mr_bar_ref); pg_ref = A*((1/mg_bar_ref.getZ())*mg_bar_ref); pc_ref = A*((1/mc_bar_ref.getZ())*mc_bar_ref); pp_ref = A*((1/mp_bar_ref.getZ())*mp_bar_ref);// reference points as pixels
+			
+			/********** camera wrt world  **********/
+			double z_init = 3; //starting camera height
+			double cam_a0 = M_PIl/2;
+			camera_wrt_world.setOrigin(tf::Vector3(1,1,z_init));//origin
+			tf::Matrix3x3 R_cf(std::cos(cam_a0),-std::sin(cam_a0),0,
+								  std::sin(cam_a0),std::cos(cam_a0),0,
+								  0,0,1);// rotation of camera wrt reference
+			tf::Matrix3x3 R_cw = R_fw*R_cf;// rotation of camera wrt world
+			tf::Quaternion Q_cw;// as a quaternion
+			R_cw.getRotation(Q_cw);// initialize quaternion
+			camera_wrt_world.setRotation(Q_cw);// set the rotation
+			
+			/********** pixels wrt camera **********/
+			temp_v = P_red_wrt_world-camera_wrt_world.getOrigin(); temp_Q = ((camera_wrt_world.getRotation().inverse())*tf::Quaternion(temp_v.getX(),temp_v.getY(),temp_v.getZ(),0.0))*camera_wrt_world.getRotation(); mr_bar = tf::Vector3(temp_Q.getX(),temp_Q.getY(),temp_Q.getZ()); // red
+			temp_v = P_green_wrt_world-camera_wrt_world.getOrigin(); temp_Q = ((camera_wrt_world.getRotation().inverse())*tf::Quaternion(temp_v.getX(),temp_v.getY(),temp_v.getZ(),0.0))*camera_wrt_world.getRotation(); mg_bar = tf::Vector3(temp_Q.getX(),temp_Q.getY(),temp_Q.getZ()); // green
+			temp_v = P_cyan_wrt_world-camera_wrt_world.getOrigin(); temp_Q = ((camera_wrt_world.getRotation().inverse())*tf::Quaternion(temp_v.getX(),temp_v.getY(),temp_v.getZ(),0.0))*camera_wrt_world.getRotation(); mc_bar = tf::Vector3(temp_Q.getX(),temp_Q.getY(),temp_Q.getZ()); // cyan
+			temp_v = P_purple_wrt_world-camera_wrt_world.getOrigin(); temp_Q = ((camera_wrt_world.getRotation().inverse())*tf::Quaternion(temp_v.getX(),temp_v.getY(),temp_v.getZ(),0.0))*camera_wrt_world.getRotation(); mp_bar = tf::Vector3(temp_Q.getX(),temp_Q.getY(),temp_Q.getZ()); // purple
+			pr = A*((1/mr_bar.getZ())*mr_bar); pg = A*((1/mg_bar.getZ())*mg_bar); pc = A*((1/mc_bar.getZ())*mc_bar); pp = A*((1/mp_bar.getZ())*mp_bar);// camera points as pixels
+			
+			/********** pixels wrt camera **********/
+			
+		}
+		
+		/********** velocity callback **********/
+		void update_camera_pixels(const geometry_msgs::Twist& msg)
+		{
+			vc.setX(msg.linear.x); vc.setY(msg.linear.y); vc.setZ(msg.linear.z);//linear velocity
+			wc.setZ(msg.angular.z);// angular velocity
+			double time_diff = current_time.toSec() - last_time.toSec();// get the time difference
+			wc_cv = cv::Mat::zeros(3,1,CV_64F); wc_cv.at<double>(2,0) = wc.getZ();// angular velocity of camera wrt reference expressed in camera
+			tf::Quaternion Q_cw = camera_wrt_world.getRotation();// rotation of camera wrt world
+			cv::Mat Q_cw_old = cv::Mat::zeros(4,1,CV_64F);
+			Q_cw_old.at<double>(0,0) = Q_cw.getW(); Q_cw_old.at<double>(1,0) = Q_cw.getX(); Q_cw_old.at<double>(2,0) = Q_cw.getY(); Q_cw_old.at<double>(3,0) = Q_cw.getZ();
+			cv::Mat B = cv::Mat::zeros(4,3,CV_64F);// differential matrix
+			B.at<double>(0,0) = -Q_cw.getX(); B.at<double>(0,1) = -Q_cw.getY(); B.at<double>(0,2) = -Q_cw.getZ();
+			B.at<double>(1,0) = Q_cw.getW(); B.at<double>(1,1) = -Q_cw.getZ(); B.at<double>(1,2) = Q_cw.getY();
+			B.at<double>(2,0) = Q_cw.getZ(); B.at<double>(2,1) = Q_cw.getW(); B.at<double>(2,2) = -Q_cw.getX();
+			B.at<double>(3,0) = -Q_cw.getY(); B.at<double>(3,1) = Q_cw.getX(); B.at<double>(3,2) = Q_cw.getW();
+			cv::Mat Q_cw_dot = 0.5*(B*wc_cv);// rate of change of rotation of camera wrt world
+			cv::Mat Q_cw_new = cv::Mat::zeros(4,1,CV_64F);
+			Q_cw_new = Q_cw_old + Q_cw_dot*time_diff;//update the quaternion
+			double Q_cw_new_norm = std::sqrt(std::pow(Q_cw_new.at<double>(0,0),2)+
+											 std::pow(Q_cw_new.at<double>(1,0),2)+
+											 std::pow(Q_cw_new.at<double>(2,0),2)+
+											 std::pow(Q_cw_new.at<double>(3,0),2));
+			Q_cw_new = (1.0/Q_cw_new_norm)*Q_cw_new;//normalize
+			Q_cw = tf::Quaternion(Q_cw_new.at<double>(1,0),Q_cw_new.at<double>(2,0),Q_cw_new.at<double>(3,0),Q_cw_new.at<double>(0,0));//updating
+			camera_wrt_world.setRotation(Q_cw);//updating the transform
+			tf::Quaternion Q_P_cw_dot = (Q_cw*tf::Quaternion(vc.getX(),vc.getY(),vc.getZ(),0.0))*Q_cw.inverse();//express vc in world frame
+			tf::Vector3 P_cw_dot = tf::Vector3(Q_P_cw_dot.getX(),Q_P_cw_dot.getY(),Q_P_cw_dot.getZ());
+			tf::Vector3 P_cw = camera_wrt_world.getOrigin();//origin of camera wrt world
+			tf::Vector3 P_cw_new = P_cw + P_cw_dot*time_diff;//update origin
+			camera_wrt_world.setOrigin(P_cw_new);//updating the transform
+			
+			/********** update pixels wrt camera  **********/
+			tf::Vector3 temp_v;
+			tf::Quaternion temp_Q;
+			temp_v = P_red_wrt_world-camera_wrt_world.getOrigin(); temp_Q = ((camera_wrt_world.getRotation().inverse())*tf::Quaternion(temp_v.getX(),temp_v.getY(),temp_v.getZ(),0.0))*camera_wrt_world.getRotation(); mr_bar = tf::Vector3(temp_Q.getX(),temp_Q.getY(),temp_Q.getZ()); // red
+			temp_v = P_green_wrt_world-camera_wrt_world.getOrigin(); temp_Q = ((camera_wrt_world.getRotation().inverse())*tf::Quaternion(temp_v.getX(),temp_v.getY(),temp_v.getZ(),0.0))*camera_wrt_world.getRotation(); mg_bar = tf::Vector3(temp_Q.getX(),temp_Q.getY(),temp_Q.getZ()); // green
+			temp_v = P_cyan_wrt_world-camera_wrt_world.getOrigin(); temp_Q = ((camera_wrt_world.getRotation().inverse())*tf::Quaternion(temp_v.getX(),temp_v.getY(),temp_v.getZ(),0.0))*camera_wrt_world.getRotation(); mc_bar = tf::Vector3(temp_Q.getX(),temp_Q.getY(),temp_Q.getZ()); // cyan
+			temp_v = P_purple_wrt_world-camera_wrt_world.getOrigin(); temp_Q = ((camera_wrt_world.getRotation().inverse())*tf::Quaternion(temp_v.getX(),temp_v.getY(),temp_v.getZ(),0.0))*camera_wrt_world.getRotation(); mp_bar = tf::Vector3(temp_Q.getX(),temp_Q.getY(),temp_Q.getZ()); // purple
+			pr = A*((1/mr_bar.getZ())*mr_bar); pg = A*((1/mg_bar.getZ())*mg_bar); pc = A*((1/mc_bar.getZ())*mc_bar); pp = A*((1/mp_bar.getZ())*mp_bar);// camera points as pixels
+			alpha_red = mr_bar_ref.getZ()/mr_bar.getZ();
+			
+			/********* camera wrt reference *********/
+			br.sendTransform(tf::StampedTransform(camera_wrt_world, current_time
+							,"world", "current_image"));
+			tf::StampedTransform camera_wrt_reference;
+			listener.waitForTransform("reference_image", "current_image"
+									 ,current_time, ros::Duration(1.0));
+			listener.lookupTransform("reference_image", "current_image"
+									 ,current_time, camera_wrt_reference);
+			Q_cf = camera_wrt_reference.getRotation();
+			Q_cf_negated = tf::Quaternion(-Q_cf.getX(),-Q_cf.getY(),-Q_cf.getZ(),-Q_cf.getW()); // getting the negated version of the quaternion for the check
+			// checking if the quaternion has flipped
+			double Q_norm_camera_diff = std::sqrt(std::pow(Q_cf.getX() - Q_cf_last.getX(),2.0)
+										  + std::pow(Q_cf.getY() - Q_cf_last.getY(),2.0) 
+										  + std::pow(Q_cf.getZ() - Q_cf_last.getZ(),2.0) 
+										  + std::pow(Q_cf.getW() - Q_cf_last.getW(),2.0));
+			double Q_norm_camera_neg_diff = std::sqrt(std::pow(Q_cf_negated.getX() - Q_cf_last.getX(),2.0)
+										  + std::pow(Q_cf_negated.getY() - Q_cf_last.getY(),2.0) 
+										  + std::pow(Q_cf_negated.getZ() - Q_cf_last.getZ(),2.0) 
+										  + std::pow(Q_cf_negated.getW() - Q_cf_last.getW(),2.0));
+			if (Q_norm_camera_diff > Q_norm_camera_neg_diff)
+			{
+				Q_cf = Q_cf_negated;
+			}
+			Q_cf_last = Q_cf;// updating the last
+			camera_wrt_reference.setRotation(Q_cf);
+			
+		}
+
+};
+
 
 // class with everything
 class Simulator
@@ -59,23 +216,14 @@ class Simulator
 		//double gamma_2 = 0;
 		double zr_star_hat = 10;// current value for zr_star_hat
 		
-		/********** Points Declarations **********/
-		tf::Vector3 P_red_wrt_world, P_green_wrt_world, P_cyan_wrt_world, P_purple_wrt_world;// homography points wrt world
-		tf::Transform red_wrt_world, green_wrt_world, cyan_wrt_world, purple_wrt_world;//transforms for the marker points
+		
 		
 		/********** Reference Declarations **********/
 		tf::Vector3 mr_bar_ref, mg_bar_ref, mc_bar_ref, mp_bar_ref;// points wrt reference
 		tf::Vector3 pr_ref, pg_ref, pc_ref, pp_ref;// pixels wrt reference
 		tf::Transform reference_wrt_world; // transform for reference camera
 		
-		/********** Camera Declarations **********/
-		tf::Vector3 mr_bar, mg_bar, mc_bar, mp_bar;// points wrt camera
-		tf::Vector3 pr, pg, pc, pp;// pixels wrt camera
-		tf::Vector3 mr;
-		tf::Transform camera_wrt_world; // transform for camera
-		tf::Matrix3x3 A = tf::Matrix3x3(1,0,0,
-										0,1,0,
-										0,0,1);// camera matrix
+		
 		
 		/********** Decomp Declarations **********/
 		tf::Transform camera_wrt_reference;// transform of camera wrt reference
@@ -208,25 +356,7 @@ class Simulator
 			temp_v = P_purple_wrt_world-reference_wrt_world.getOrigin(); temp_Q = ((reference_wrt_world.getRotation().inverse())*tf::Quaternion(temp_v.getX(),temp_v.getY(),temp_v.getZ(),0.0))*reference_wrt_world.getRotation(); mp_bar_ref = tf::Vector3(temp_Q.getX(),temp_Q.getY(),temp_Q.getZ()); // purple
 			pr_ref = A*((1/mr_bar_ref.getZ())*mr_bar_ref); pg_ref = A*((1/mg_bar_ref.getZ())*mg_bar_ref); pc_ref = A*((1/mc_bar_ref.getZ())*mc_bar_ref); pp_ref = A*((1/mp_bar_ref.getZ())*mp_bar_ref);// reference points as pixels
 			
-			/********** camera wrt world  **********/
-			double z_init = 3; //starting camera height
-			double cam_a0 = M_PIl/2;
-			camera_wrt_world.setOrigin(tf::Vector3(1,1,z_init));//origin
-			tf::Matrix3x3 R_cf(std::cos(cam_a0),-std::sin(cam_a0),0,
-								  std::sin(cam_a0),std::cos(cam_a0),0,
-								  0,0,1);// rotation of camera wrt reference
-			tf::Matrix3x3 R_cw = R_fw*R_cf;// rotation of camera wrt world
-			tf::Quaternion Q_cw;// as a quaternion
-			R_cw.getRotation(Q_cw);// initialize quaternion
-			camera_wrt_world.setRotation(Q_cw);// set the rotation
 			
-			/********** pixels wrt camera **********/
-			temp_v = P_red_wrt_world-camera_wrt_world.getOrigin(); temp_Q = ((camera_wrt_world.getRotation().inverse())*tf::Quaternion(temp_v.getX(),temp_v.getY(),temp_v.getZ(),0.0))*camera_wrt_world.getRotation(); mr_bar = tf::Vector3(temp_Q.getX(),temp_Q.getY(),temp_Q.getZ()); // red
-			temp_v = P_green_wrt_world-camera_wrt_world.getOrigin(); temp_Q = ((camera_wrt_world.getRotation().inverse())*tf::Quaternion(temp_v.getX(),temp_v.getY(),temp_v.getZ(),0.0))*camera_wrt_world.getRotation(); mg_bar = tf::Vector3(temp_Q.getX(),temp_Q.getY(),temp_Q.getZ()); // green
-			temp_v = P_cyan_wrt_world-camera_wrt_world.getOrigin(); temp_Q = ((camera_wrt_world.getRotation().inverse())*tf::Quaternion(temp_v.getX(),temp_v.getY(),temp_v.getZ(),0.0))*camera_wrt_world.getRotation(); mc_bar = tf::Vector3(temp_Q.getX(),temp_Q.getY(),temp_Q.getZ()); // cyan
-			temp_v = P_purple_wrt_world-camera_wrt_world.getOrigin(); temp_Q = ((camera_wrt_world.getRotation().inverse())*tf::Quaternion(temp_v.getX(),temp_v.getY(),temp_v.getZ(),0.0))*camera_wrt_world.getRotation(); mp_bar = tf::Vector3(temp_Q.getX(),temp_Q.getY(),temp_Q.getZ()); // purple
-			pr = A*((1/mr_bar.getZ())*mr_bar); pg = A*((1/mg_bar.getZ())*mg_bar); pc = A*((1/mc_bar.getZ())*mc_bar); pp = A*((1/mp_bar.getZ())*mp_bar);// camera points as pixels
-			alpha_red = mr_bar_ref.getZ()/mr_bar.getZ();
 			
 			/********** desired wrt world **********/
 			double zd_init = 2; //starting desired height
@@ -350,72 +480,7 @@ class Simulator
 			
 		}
 		
-		// update camera
-		void update_camera_pixels()
-		{
-			double time_diff = current_time.toSec() - last_time.toSec();// get the time difference
-			wc_cv = cv::Mat::zeros(3,1,CV_64F); wc_cv.at<double>(2,0) = wc.getZ();// angular velocity of camera wrt reference expressed in camera
-			tf::Quaternion Q_cw = camera_wrt_world.getRotation();// rotation of camera wrt world
-			cv::Mat Q_cw_old = cv::Mat::zeros(4,1,CV_64F);
-			Q_cw_old.at<double>(0,0) = Q_cw.getW(); Q_cw_old.at<double>(1,0) = Q_cw.getX(); Q_cw_old.at<double>(2,0) = Q_cw.getY(); Q_cw_old.at<double>(3,0) = Q_cw.getZ();
-			cv::Mat B = cv::Mat::zeros(4,3,CV_64F);// differential matrix
-			B.at<double>(0,0) = -Q_cw.getX(); B.at<double>(0,1) = -Q_cw.getY(); B.at<double>(0,2) = -Q_cw.getZ();
-			B.at<double>(1,0) = Q_cw.getW(); B.at<double>(1,1) = -Q_cw.getZ(); B.at<double>(1,2) = Q_cw.getY();
-			B.at<double>(2,0) = Q_cw.getZ(); B.at<double>(2,1) = Q_cw.getW(); B.at<double>(2,2) = -Q_cw.getX();
-			B.at<double>(3,0) = -Q_cw.getY(); B.at<double>(3,1) = Q_cw.getX(); B.at<double>(3,2) = Q_cw.getW();
-			cv::Mat Q_cw_dot = 0.5*(B*wc_cv);// rate of change of rotation of camera wrt world
-			cv::Mat Q_cw_new = cv::Mat::zeros(4,1,CV_64F);
-			Q_cw_new = Q_cw_old + Q_cw_dot*time_diff;//update the quaternion
-			double Q_cw_new_norm = std::sqrt(std::pow(Q_cw_new.at<double>(0,0),2)+
-											 std::pow(Q_cw_new.at<double>(1,0),2)+
-											 std::pow(Q_cw_new.at<double>(2,0),2)+
-											 std::pow(Q_cw_new.at<double>(3,0),2));
-			Q_cw_new = (1.0/Q_cw_new_norm)*Q_cw_new;//normalize
-			Q_cw = tf::Quaternion(Q_cw_new.at<double>(1,0),Q_cw_new.at<double>(2,0),Q_cw_new.at<double>(3,0),Q_cw_new.at<double>(0,0));//updating
-			camera_wrt_world.setRotation(Q_cw);//updating the transform
-			tf::Quaternion Q_P_cw_dot = (Q_cw*tf::Quaternion(vc.getX(),vc.getY(),vc.getZ(),0.0))*Q_cw.inverse();//express vc in world frame
-			tf::Vector3 P_cw_dot = tf::Vector3(Q_P_cw_dot.getX(),Q_P_cw_dot.getY(),Q_P_cw_dot.getZ());
-			tf::Vector3 P_cw = camera_wrt_world.getOrigin();//origin of camera wrt world
-			tf::Vector3 P_cw_new = P_cw + P_cw_dot*time_diff;//update origin
-			camera_wrt_world.setOrigin(P_cw_new);//updating the transform
-			
-			/********** update pixels wrt camera  **********/
-			tf::Vector3 temp_v;
-			tf::Quaternion temp_Q;
-			temp_v = P_red_wrt_world-camera_wrt_world.getOrigin(); temp_Q = ((camera_wrt_world.getRotation().inverse())*tf::Quaternion(temp_v.getX(),temp_v.getY(),temp_v.getZ(),0.0))*camera_wrt_world.getRotation(); mr_bar = tf::Vector3(temp_Q.getX(),temp_Q.getY(),temp_Q.getZ()); // red
-			temp_v = P_green_wrt_world-camera_wrt_world.getOrigin(); temp_Q = ((camera_wrt_world.getRotation().inverse())*tf::Quaternion(temp_v.getX(),temp_v.getY(),temp_v.getZ(),0.0))*camera_wrt_world.getRotation(); mg_bar = tf::Vector3(temp_Q.getX(),temp_Q.getY(),temp_Q.getZ()); // green
-			temp_v = P_cyan_wrt_world-camera_wrt_world.getOrigin(); temp_Q = ((camera_wrt_world.getRotation().inverse())*tf::Quaternion(temp_v.getX(),temp_v.getY(),temp_v.getZ(),0.0))*camera_wrt_world.getRotation(); mc_bar = tf::Vector3(temp_Q.getX(),temp_Q.getY(),temp_Q.getZ()); // cyan
-			temp_v = P_purple_wrt_world-camera_wrt_world.getOrigin(); temp_Q = ((camera_wrt_world.getRotation().inverse())*tf::Quaternion(temp_v.getX(),temp_v.getY(),temp_v.getZ(),0.0))*camera_wrt_world.getRotation(); mp_bar = tf::Vector3(temp_Q.getX(),temp_Q.getY(),temp_Q.getZ()); // purple
-			pr = A*((1/mr_bar.getZ())*mr_bar); pg = A*((1/mg_bar.getZ())*mg_bar); pc = A*((1/mc_bar.getZ())*mc_bar); pp = A*((1/mp_bar.getZ())*mp_bar);// camera points as pixels
-			alpha_red = mr_bar_ref.getZ()/mr_bar.getZ();
-			
-			/********* camera wrt reference *********/
-			br.sendTransform(tf::StampedTransform(camera_wrt_world, current_time
-							,"world", "current_image"));
-			tf::StampedTransform camera_wrt_reference;
-			listener.waitForTransform("reference_image", "current_image"
-									 ,current_time, ros::Duration(1.0));
-			listener.lookupTransform("reference_image", "current_image"
-									 ,current_time, camera_wrt_reference);
-			Q_cf = camera_wrt_reference.getRotation();
-			Q_cf_negated = tf::Quaternion(-Q_cf.getX(),-Q_cf.getY(),-Q_cf.getZ(),-Q_cf.getW()); // getting the negated version of the quaternion for the check
-			// checking if the quaternion has flipped
-			double Q_norm_camera_diff = std::sqrt(std::pow(Q_cf.getX() - Q_cf_last.getX(),2.0)
-										  + std::pow(Q_cf.getY() - Q_cf_last.getY(),2.0) 
-										  + std::pow(Q_cf.getZ() - Q_cf_last.getZ(),2.0) 
-										  + std::pow(Q_cf.getW() - Q_cf_last.getW(),2.0));
-			double Q_norm_camera_neg_diff = std::sqrt(std::pow(Q_cf_negated.getX() - Q_cf_last.getX(),2.0)
-										  + std::pow(Q_cf_negated.getY() - Q_cf_last.getY(),2.0) 
-										  + std::pow(Q_cf_negated.getZ() - Q_cf_last.getZ(),2.0) 
-										  + std::pow(Q_cf_negated.getW() - Q_cf_last.getW(),2.0));
-			if (Q_norm_camera_diff > Q_norm_camera_neg_diff)
-			{
-				Q_cf = Q_cf_negated;
-			}
-			Q_cf_last = Q_cf;// updating the last
-			camera_wrt_reference.setRotation(Q_cf);
-			
-		}
+
 		
 		// update desired
 		void update_desired_pixels()

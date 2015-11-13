@@ -41,6 +41,7 @@ add_message_files(
   HomogComplete.msg
   HomogDecomposed.msg
   HomogDesired.msg
+  ImageProcessingMsg.msg
 )
 
 add_service_files(
@@ -72,6 +73,6 @@ add_executable(quad_controller_node src/quad_controller_3.cpp)
 target_link_libraries(quad_controller_node ${catkin_LIBRARIES})
 add_dependencies(quad_controller_node ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 
-add_executable(simulator_node src/simulation.cpp)
+add_executable(simulator_node src/simulator_with_nodes.cpp)
 target_link_libraries(simulator_node ${catkin_LIBRARIES})
 add_dependencies(simulator_node ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
