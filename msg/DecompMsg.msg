@@ -1,0 +1,13 @@
+Header header
+float64[9] R1
+float64[3] t1
+float64[3] n1
+float64[9] R2
+float64[3] t2
+float64[3] n2
+float64 alphar
+float64 alphag
+float64 alphac
+float64 alphap
+homog_track/ImageProcessingMsg cam_pixels
+homog_track/ImageProcessingMsg ref_cam_pixels

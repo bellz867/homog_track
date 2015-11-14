@@ -42,6 +42,7 @@ add_message_files(
   HomogDecomposed.msg
   HomogDesired.msg
   ImageProcessingMsg.msg
+  DecompMsg.msg
 )
 
 add_service_files(
