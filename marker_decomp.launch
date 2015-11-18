@@ -1,4 +1,0 @@
-  <launch>
-    <!-- Decompose Node-->
-    <node pkg="homog_track" type="decomp_node" name="decomp_node" />
-  </launch>

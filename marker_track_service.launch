@@ -1,4 +1,0 @@
-  <launch>
-		<!-- Tracking Node service-->
-		<node pkg="rosservice" type="rosservice" name="set_reference" args="call /set_reference 'reference_choice: 0'"/>
-  </launch>

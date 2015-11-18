@@ -1,4 +1,0 @@
-  <launch>
-    <!-- Tracking Node-->
-    <node pkg="homog_track" type="tracking_node" name="tracking_node" />
-  </launch>

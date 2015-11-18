@@ -1,4 +1,0 @@
-  <launch>
-    <!-- Command Node-->
-    <node pkg="homog_track" type="quad_controller_node" name="quad_controller_node" output="screen"/>
-  </launch>

@@ -1,8 +1,0 @@
-    <launch>
-    <!-- Desired Node-->
-    <node pkg="homog_track" type="desired_camera_node" name="desired_camera_node" />
-    
-    <!-- Start Desired Node service-->
-    <node pkg="rosservice" type="rosservice" name="start_desired" args="call /start_desired"/>
-    
-    </launch>
