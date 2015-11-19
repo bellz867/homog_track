@@ -82,3 +82,6 @@ add_executable(nodetastic src/testing_stuff.cpp)
 target_link_libraries(nodetastic ${catkin_LIBRARIES})
 add_dependencies(nodetastic ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 
+add_executable(experiment src/experiment.cpp)
+target_link_libraries(experiment ${catkin_LIBRARIES})
+add_dependencies(experiment ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
