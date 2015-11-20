@@ -773,6 +773,10 @@ class HomogDecomp
 		// callback for the complete message
 		void pixels_callback(const homog_track::ImageProcessingMsg& msg)
 		{
+			// erasing all the point vectors and matrix vectors
+			pixels.erase(pixels.begin(),pixels.end());
+			curr_points_m.erase(curr_points_m.begin(),curr_points_m.end());
+			
 			/********** Begin splitting up the incoming message *********/
 			// initializer temp scalar to zero
 			temp_scalar = cv::Mat::zeros(1,1,CV_64F);
@@ -978,11 +982,10 @@ class HomogDecomp
 				}
 			}
 
-			// erasing all the point vectors and matrix vectors
-			pixels.erase(pixels.begin(),pixels.end());
-			curr_points_m.erase(curr_points_m.begin(),curr_points_m.end());
 			
-			std::cout << "decomp updated" << std::endl;
+			
+			
+			//std::cout << "decomp updated" << std::endl;
 		}
 };
 
@@ -1114,11 +1117,13 @@ class Controller
 		bool first_time_update = true; // first time update occurance
 		bool first_desired_recieved = false, first_marker_recieved = false, first_decomp_recieved = false; // first messages recieved
 		bool desired_recieved = false, marker_recieved = false, decomp_recieved = false; // messages recieved
-
+		bool start_controller = false;// start the controller when the right bumper is pressed
+		bool start_autonomous = false;
 		/********** output command choice and xbox controller **********/
 		geometry_msgs::Twist velocity_command;
 		geometry_msgs::Twist command_from_xbox;
-		double a_button_land_b0 = 0, b_button_reset_b1 = 0, y_button_takeoff_b3 = 0, lb_button_teleop_b4 = 0, rt_stick_ud_x_a3 = 0, rt_stick_lr_y_a2 = 0, lt_stick_ud_z_a1 = 0, lt_stick_lr_th_a0 = 0;
+		int a_button_land_b0 = 0, b_button_reset_b1 = 0, y_button_takeoff_b3 = 0, lb_button_teleop_b4 = 0, rb_button_teleop_b5 = 0;
+		double rt_stick_ud_x_a3 = 0, rt_stick_lr_y_a2 = 0, lt_stick_ud_z_a1 = 0, lt_stick_lr_th_a0 = 0;
 		
 		Controller(double loop_rate_des, bool write_to_file_des, std::string& output_file_name_des)
 		{	
@@ -1355,9 +1360,15 @@ class Controller
 			pp.setX(msg.cam_pixels.pp.x); pp.setY(msg.cam_pixels.pp.y); pp.setZ(1);//purple pixels
 			//std::cout << "pp:\n x: " << pp.getX() << " y: " << pp.getY() << " z: " << pp.getZ() << std::endl;
 			alpha_red = msg.alphar;
-			update_desired_pixels();
-			output_velocity_command();
+			
+			// if it is not the first run and start autonomous is true want to update the desired and then output a new command otherwise just pass
+			if (!first_run && start_autonomous)
+			{
+				update_desired_pixels();
+				output_velocity_command();
+			}
 			last_time = current_time;
+			
 		}
 		
 		/********** callback for the controller **********/
@@ -1384,6 +1395,26 @@ class Controller
 			}
 				
 			lb_button_teleop_b4 = msg.buttons[4];// left bumper for autonomous mode
+			rb_button_teleop_b5 = msg.buttons[5];// right bumper says to start controller
+			if (rb_button_teleop_b5 > 0)
+			{
+				if (!start_controller)
+				{
+					start_controller = true;
+					std::cout << "start controller" << std::endl;
+				}
+			}
+			
+			// if the bumper is pulled and it is not in autonomous mode will put it in autonomous mode
+			// if the bumper is pulled and it is in autonomous mode will take it out of autonomous mode
+			if (lb_button_teleop_b4 > 0 && !start_autonomous)
+			{
+				start_autonomous = true;
+			}
+			else if (lb_button_teleop_b4 > 0 && start_autonomous)
+			{
+				start_autonomous = false;
+			}
 			
 			rt_stick_ud_x_a3 = joy_deadband(msg.axes[3]);// right thumbstick up and down controls linear x
 			command_from_xbox.linear.x = joy_gain*rt_stick_ud_x_a3;
@@ -1396,6 +1427,18 @@ class Controller
 			
 			lt_stick_lr_th_a0 = joy_deadband(msg.axes[0]);// left thumbstick left and right controls angular z
 			command_from_xbox.angular.z = joy_gain*lt_stick_lr_th_a0;
+			std::cout << "xbox callback" << std::endl;
+			
+			std::cout << "linear x: " << command_from_xbox.linear.x << std::endl;
+			std::cout << "linear y: " << command_from_xbox.linear.y << std::endl;
+			std::cout << "linear z: " << command_from_xbox.linear.z << std::endl;
+			std::cout << "angular z: " << command_from_xbox.linear.z << std::endl;
+			
+			if (first_run || (!first_run && !start_autonomous ) )
+			{
+				output_velocity_command();
+			}
+			
 		}
 		
 		/********** deadband for the xbox controller **********/
@@ -1704,8 +1747,9 @@ class Controller
 		void output_velocity_command()
 		{
 			
-			if (alpha_red > 0)
+			if (alpha_red > 0 && start_controller)
 			{
+				std::cout << "controller" << std::endl;
 				generate_velocity_command_from_tracking();
 						
 				if (write_to_file)
@@ -1742,8 +1786,13 @@ class Controller
 				}
 			}
 			
-			if (lb_button_teleop_b4 > 0)
+			if (lb_button_teleop_b4 > 0 && start_controller)
 			{
+				std::cout << "command from controller" << std::endl;
+				
+				//translation: [ 0.089984039475519 -0.196071384094287 -0.016458681357575]
+				//quaternion: [-0.244662745945435  0.915890697144415 -0.306342840683865 0.086151211868539]
+				
 				velocity_command.linear.x = vc.getX();
 				velocity_command.linear.y = vc.getY();
 				velocity_command.linear.z = vc.getZ();
@@ -1751,9 +1800,13 @@ class Controller
 			}
 			else
 			{
+				std::cout << "command from xbox" << std::endl;
 				velocity_command = command_from_xbox;
 			}
-			
+			std::cout << "linear x: " << velocity_command.linear.x << std::endl;
+			std::cout << "linear y: " << velocity_command.linear.y << std::endl;
+			std::cout << "linear z: " << velocity_command.linear.z << std::endl;
+			std::cout << "angular z: " << velocity_command.linear.z << std::endl;
 			cmd_vel_pub.publish(velocity_command);
 		}
 
