@@ -1020,18 +1020,18 @@ class Controller
 		std::string output_file_name; // file name
 		
 		/********** Gains **********/
-		double Kws = 1;// K_w scalar
+		double Kws = 0.1;// K_w scalar
 		tf::Matrix3x3 Kw = tf::Matrix3x3(Kws,0,0,
 										 0,Kws,0,
 										 0,0,Kws);// rotational gain matrix initialize to identity
-		double Kvs = 1;
+		double Kvs = 0.1;
 		tf::Matrix3x3 Kv = tf::Matrix3x3(Kvs,0,0,
 										 0,Kvs,0,
 										 0,0,Kvs);// linear velocity gain matrix
-		//double gamma_1 = std::pow(5,1);// control gains for the z_star_hat_dot calculation
-		//double gamma_2 = std::pow(0.3,1);
-		double gamma_1 = 0;
-		double gamma_2 = 0;
+		double gamma_1 = std::pow(10,-2);// control gains for the z_star_hat_dot calculation
+		double gamma_2 = std::pow(10,-4);
+		//double gamma_1 = 0;
+		//double gamma_2 = 0;
 		double zr_star_hat = 2;// current value for zr_star_hat
 		
 		/********** Points **********/
@@ -1241,8 +1241,8 @@ class Controller
 			tf::Quaternion wcd = ((camera_wrt_body.getRotation().inverse()) * tf::Quaternion(wcd_temp.getX(), wcd_temp.getY(), wcd_temp.getZ(), 0)) * camera_wrt_body.getRotation();
 			wcd_cv.at<double>(0,0) = wcd.getX(); wcd_cv.at<double>(1,0) = wcd.getY(); wcd_cv.at<double>(2,0) = wcd.getZ(); 
 			
-			std::cout << "wcd:/n x: " << wcd.getX() << " y: " << wcd.getY() << " z: " << wcd.getZ() << std::endl;
-			std::cout << "vcd:/n x: " << vcd.getX() << " y: " << vcd.getY() << " z: " << vcd.getZ() << std::endl;  
+			//std::cout << "wcd:/n x: " << wcd.getX() << " y: " << wcd.getY() << " z: " << wcd.getZ() << std::endl;
+			//std::cout << "vcd:/n x: " << vcd.getX() << " y: " << vcd.getY() << " z: " << vcd.getZ() << std::endl;  
 			
 			/********** pixels wrt desired  **********/
 			temp_v = P_red_wrt_world-desired_wrt_world.getOrigin(); temp_Q = ((desired_wrt_world.getRotation().inverse())*tf::Quaternion(temp_v.getX(),temp_v.getY(),temp_v.getZ(),0.0))*desired_wrt_world.getRotation(); mrd_bar = tf::Vector3(temp_Q.getX(),temp_Q.getY(),temp_Q.getZ()); // red
@@ -1509,12 +1509,12 @@ class Controller
 			tf::Vector3 P_dw_new = P_dw + P_dw_dot*time_diff;//update origin
 			desired_wrt_world.setOrigin(P_dw_new);//updating the transform
 
-			std::cout << "wcd:\n x: " << wcd.getX() << " y: " << wcd.getY() << " z: " << wcd.getZ() << std::endl;
-			std::cout << "vcd:\n x: " << vcd.getX() << " y: " << vcd.getY() << " z: " << vcd.getZ() << std::endl;
-			std::cout << "Q_dw_dot:\n x: " << Q_dw_dot.at<double>(0,0) << " y: " << Q_dw_dot.at<double>(1,0) << " z: " << Q_dw_dot.at<double>(2,0) << " w: " << Q_dw_dot.at<double>(3,0) << std::endl;
-			std::cout << "Q_dw:\n x: " << Q_dw.getX() << " y: " << Q_dw.getY() << " z: " << Q_dw.getZ() << " w: " << Q_dw.getW() << std::endl;
-			std::cout << "P_dw_dot:\n x: " << P_dw_dot.getX() << " y: " << P_dw_dot.getY() << " z: " << P_dw_dot.getZ() << std::endl;
-			std::cout << "P_dw:\n x: " << P_dw.getX() << " y: " << P_dw.getY() << " z: " << P_dw.getZ() << std::endl;
+			//std::cout << "wcd:\n x: " << wcd.getX() << " y: " << wcd.getY() << " z: " << wcd.getZ() << std::endl;
+			//std::cout << "vcd:\n x: " << vcd.getX() << " y: " << vcd.getY() << " z: " << vcd.getZ() << std::endl;
+			//std::cout << "Q_dw_dot:\n x: " << Q_dw_dot.at<double>(0,0) << " y: " << Q_dw_dot.at<double>(1,0) << " z: " << Q_dw_dot.at<double>(2,0) << " w: " << Q_dw_dot.at<double>(3,0) << std::endl;
+			//std::cout << "Q_dw:\n x: " << Q_dw.getX() << " y: " << Q_dw.getY() << " z: " << Q_dw.getZ() << " w: " << Q_dw.getW() << std::endl;
+			//std::cout << "P_dw_dot:\n x: " << P_dw_dot.getX() << " y: " << P_dw_dot.getY() << " z: " << P_dw_dot.getZ() << std::endl;
+			//std::cout << "P_dw:\n x: " << P_dw.getX() << " y: " << P_dw.getY() << " z: " << P_dw.getZ() << std::endl;
 			
 
 
@@ -1788,12 +1788,15 @@ class Controller
 				generate_velocity_command_from_tracking();
 			}
 			
-			if (lb_button_teleop_b4 > 0 && start_controller)
+			if (start_autonomous && start_controller)
 			{
 				std::cout << "command from controller" << std::endl;
-				
+				std::cout << "wc:\n x: " << wcd.getX() << " y: " << wcd.getY() << " z: " << wcd.getZ() << std::endl;
+				std::cout << "vc:\n x: " << vcd.getX() << " y: " << vcd.getY() << " z: " << vcd.getZ() << std::endl;
+				std::cout << "w_body:\n x: " << w_body.getX() << " y: " << w_body.getY() << " z: " << w_body.getZ() << std::endl;
+			
 				if (!std::isnan(vc.getX()) && !std::isnan(vc.getY()) && !std::isnan(vc.getY()) && !std::isnan(wc.getZ()))
-				{				
+				{	
 					// output linear velocity is q_cam_wrt_body * vc * q_cam_wrt_body.inverse() - w_body_wrt_world X p_cam_wrt_body
 					tf::Quaternion vc_body_term1 = (camera_wrt_body.getRotation() * tf::Quaternion(vc.getX(), vc.getY(), vc.getZ(), 0)) * (camera_wrt_body.getRotation().inverse());
 					tf::Vector3 vc_body_term2 = w_body.cross(camera_wrt_body.getOrigin());
@@ -1804,6 +1807,9 @@ class Controller
 					// output angular velocity is q_cam_wrt_body * wc * q_cam_wrt_body.inverse()
 					tf::Quaternion wc_body = (camera_wrt_body.getRotation() * tf::Quaternion(wc.getX(), wc.getY(), wc.getZ(), 0)) * (camera_wrt_body.getRotation().inverse());
 					velocity_command.angular.z = wc_body.getZ();
+					//std::cout << "wc_body:\n x: " << wcd.getX() << " y: " << wcd.getY() << " z: " << wcd.getZ() << std::endl;
+					//std::cout << "vc_body:\n x: " << velocity_command.linear.x << " y: " << velocity_command.linear.y << " z: " << velocity_command.linear.z << std::endl;
+					
 				}
 				else
 				{
@@ -1824,7 +1830,7 @@ class Controller
 			std::cout << "angular z: " << velocity_command.linear.z << std::endl;
 			cmd_vel_pub.publish(velocity_command);
 			
-			if (write_to_file)
+			if (write_to_file && start_controller && start_autonomous)
 			{
 				output_file.open(output_file_name, std::fstream::out | std::fstream::app);
 			}
@@ -1867,7 +1873,7 @@ int main(int argc, char** argv)
 
 	double loop_rate_hz = 30;
 	bool write_to_file = true;
-	std::string filename = "/home/zack/v1_ws/src/homog_track/testing_files/experiment.txt";
+	std::string filename = "/home/zack/v1_ws/src/homog_track/testing_files/experiment_2.txt";
 	if( (std::remove( filename.c_str() ) != 0) && write_to_file)
 	{
 		std::cout << "file does not exist" << std::endl;
