@@ -1830,7 +1830,7 @@ class Controller
 			std::cout << "angular z: " << velocity_command.linear.z << std::endl;
 			cmd_vel_pub.publish(velocity_command);
 			
-			if (write_to_file && start_controller && start_autonomous)
+			if (write_to_file)
 			{
 				output_file.open(output_file_name, std::fstream::out | std::fstream::app);
 			}
@@ -1872,8 +1872,9 @@ int main(int argc, char** argv)
 	ros::init(argc,argv,"experiment_node");
 
 	double loop_rate_hz = 30;
-	bool write_to_file = true;
-	std::string filename = "/home/zack/v1_ws/src/homog_track/testing_files/experiment_2.txt";
+	bool write_to_file = false;
+	
+	std::string filename = "/home/zack/v1_ws/src/homog_track/testing_files/experiment_3.txt";
 	if( (std::remove( filename.c_str() ) != 0) && write_to_file)
 	{
 		std::cout << "file does not exist" << std::endl;
