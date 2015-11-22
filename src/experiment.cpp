@@ -1874,7 +1874,7 @@ int main(int argc, char** argv)
 	double loop_rate_hz = 30;
 	bool write_to_file = true;
 	
-	std::string filename = "/home/ncr/ncr_ws/src/homog_track/testing_files/experiment_2.txt";
+	std::string filename = "/home/ncr/ncr_ws/src/homog_track/testing_files/experiment_3.txt";
 	if( (std::remove( filename.c_str() ) != 0) && write_to_file)
 	{
 		std::cout << "file does not exist" << std::endl;
