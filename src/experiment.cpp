@@ -1127,6 +1127,8 @@ class Controller
 		bool desired_recieved = false, marker_recieved = false, decomp_recieved = false; // messages recieved
 		bool start_controller = false;// start the controller when the right bumper is pressed
 		bool start_autonomous = false;
+		bool new_decomp_recieved = false;
+		bool new_joy_recieved = false;
 		/********** output command choice and xbox controller **********/
 		geometry_msgs::Twist velocity_command;
 		geometry_msgs::Twist command_from_xbox;
@@ -1160,7 +1162,9 @@ class Controller
 			
 				if (output_file.is_open())
 				{
-					output_file << "prx," << "pry," << "prz,"
+					output_file << "time,"
+								<< "left_bumper,"
+								<< "prx," << "pry," << "prz,"
 								<< "prdx," << "prdy," << "prdz,"
 								<< "mrx," << "mry," << "mrz,"
 								<< "mrdx," << "mrdy," << "mrdz,"
@@ -1393,7 +1397,7 @@ class Controller
 			// if it is not the first run and start autonomous is true want to update the desired and then output a new command otherwise just pass
 			if (!first_run && start_autonomous)
 			{
-				output_velocity_command();
+				new_decomp_recieved = true;
 			}
 			last_time = current_time;
 			
@@ -1460,7 +1464,7 @@ class Controller
 			
 			if (first_run || (!first_run && !start_autonomous ) )
 			{
-				output_velocity_command();
+				new_joy_recieved = true;
 			}
 			
 		}
@@ -1777,7 +1781,6 @@ class Controller
 		/********** velocity command **********/
 		void output_velocity_command()
 		{
-			
 			if (alpha_red > 0 && start_controller)
 			{
 				std::cout << "controller" << std::endl;
@@ -1800,13 +1803,16 @@ class Controller
 					velocity_command.linear.y = vc_body_term1.getY() + vc_body_term2.getY();
 					velocity_command.linear.z = vc_body_term1.getZ() + vc_body_term2.getZ();
 					
+				
 					// output angular velocity is q_cam_wrt_body * wc * q_cam_wrt_body.inverse()
 					tf::Quaternion wc_body = (camera_wrt_body.getRotation() * tf::Quaternion(wc.getX(), wc.getY(), wc.getZ(), 0)) * (camera_wrt_body.getRotation().inverse());
 					velocity_command.angular.z = wc_body.getZ();
 					//std::cout << "wc_body:\n x: " << wcd.getX() << " y: " << wcd.getY() << " z: " << wcd.getZ() << std::endl;
 					//std::cout << "vc_body:\n x: " << velocity_command.linear.x << " y: " << velocity_command.linear.y << " z: " << velocity_command.linear.z << std::endl;
 					std::cout << "none are nan" << std::endl;
-					
+					std::cout << "vc_body_term1:\n x: " << vc_body_term1.getX() << " y: " << vc_body_term1.getY() << " z: " << vc_body_term1.getZ() << " w: " << vc_body_term1.getW() << std::endl;
+					std::cout << "vc_body_term2:\n x: " << vc_body_term2.getX() << " y: " << vc_body_term2.getY() << " z: " << vc_body_term2.getZ() << std::endl;
+					std::cout << "wc_body:\n x: " << wc_body.getX() << " y: " << wc_body.getY() << " z: " << wc_body.getZ() << std::endl;
 				}
 				else
 				{
@@ -1833,7 +1839,8 @@ class Controller
 			}
 			if (output_file.is_open())
 			{
-				output_file << pr.getX() << "," << pr.getY() << "," << pr.getZ() << ","
+				output_file  << current_time.toSec() - start_time.toSec() << "," << lb_button_teleop_b4 << ","
+				<< pr.getX() << "," << pr.getY() << "," << pr.getZ() << ","
 				<< prd.getX() << "," << prd.getY() << "," << prd.getZ() << ","
 				<< mr.getX() << "," << mr.getY() << "," << mr.getZ() << ","
 				<< mrd.getX() << "," << mrd.getY() << "," << mrd.getZ() << ","
@@ -1895,6 +1902,12 @@ int main(int argc, char** argv)
 	while (ros::ok())
 	{
 		controller.update_desired_pixels();
+		if (controller.new_joy_recieved || controller.new_decomp_recieved)
+		{
+			controller.output_velocity_command();
+			controller.new_joy_recieved = false;
+			controller.new_decomp_recieved = false;
+		}
 		ros::spinOnce();
 		loop_rate.sleep();
 	}

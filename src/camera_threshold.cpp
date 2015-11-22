@@ -508,7 +508,7 @@ int main(int argc, char** argv)
 	ros::init(argc,argv,"threshold_testing_node");
 
 	double loop_rate_hz = 15;
-	std::string video_file = "/home/zack/v1_ws/experiment_2.avi";
+	std::string video_file = "/home/zack/v1_ws/experiment_2_last_crash_starttime_3min29sec.avi";
 	ImageGenerator image_generator(video_file);	
 	ImageProcessing image_processing;// image processing
 	
