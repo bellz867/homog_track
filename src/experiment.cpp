@@ -88,7 +88,7 @@ class ImageProcessing
 		
 		/********** threshold declarations and initializations **********/
 		// order is {lower hue, upper hue, lower saturation, upper saturation, lower value, upper value}
-		int r_thresh[6] = {170, 5, 45, 255, 85, 255};// values for the red color threshold values: hue, staturation, and value
+		int r_thresh[6] = {165, 5, 60, 255, 85, 255};// values for the red color threshold values: hue, staturation, and value
 		int g_thresh[6] = {65, 90, 45, 255, 40, 255};// values for the green color threshold values: hue, staturation, and value
 		int c_thresh[6] = {95, 105, 125, 255, 80, 255};// values for the cyan color threshold values: hue, staturation, and value
 		int p_thresh[6] = {110, 135, 45, 255, 50, 255};// values for the violet color threshold values: hue, staturation, and value
@@ -1020,7 +1020,7 @@ class Controller
 		std::string output_file_name; // file name
 		
 		/********** Gains **********/
-		double Kws = 0.1;// K_w scalar
+		double Kws = 1;// K_w scalar
 		tf::Matrix3x3 Kw = tf::Matrix3x3(Kws,0,0,
 										 0,Kws,0,
 										 0,0,Kws);// rotational gain matrix initialize to identity
@@ -1175,6 +1175,9 @@ class Controller
 								<< "wcx," << "wcy," << "wcz,"
 								<< "vcdx," << "vcdy," << "vcdz,"
 								<< "wcdx," << "wcdy," << "wcdz,"
+								<< "w_bodyimux" << "w_bodyimuy" << "w_bodyimuz"
+								<< "v_bodyx" << "v_bodyy" << "v_bodyz"
+								<< "w_bodyx" << "w_bodyy" << "w_bodyz"
 								<< "Evx," << "Evy," << "Evz,"
 								<< "Phix," << "Phiy," << "Phiz,"
 								<< "Uvarx," << "Uvary," << "Uvarz,"
@@ -1432,14 +1435,7 @@ class Controller
 			
 			// if the bumper is pulled and it is not in autonomous mode will put it in autonomous mode
 			// if the bumper is pulled and it is in autonomous mode will take it out of autonomous mode
-			if (lb_button_teleop_b4 > 0 && !start_autonomous)
-			{
-				start_autonomous = true;
-			}
-			else if (lb_button_teleop_b4 > 0 && start_autonomous)
-			{
-				start_autonomous = false;
-			}
+			start_autonomous = lb_button_teleop_b4 > 0;
 			
 			std::cout << "controller is started: " << start_controller << std::endl;
 			std::cout << "autonomous mode is: " << start_autonomous << std::endl;
@@ -1809,6 +1805,7 @@ class Controller
 					velocity_command.angular.z = wc_body.getZ();
 					//std::cout << "wc_body:\n x: " << wcd.getX() << " y: " << wcd.getY() << " z: " << wcd.getZ() << std::endl;
 					//std::cout << "vc_body:\n x: " << velocity_command.linear.x << " y: " << velocity_command.linear.y << " z: " << velocity_command.linear.z << std::endl;
+					std::cout << "none are nan" << std::endl;
 					
 				}
 				else
@@ -1847,10 +1844,13 @@ class Controller
 				<< Q_error.getW() << "," << Q_error.getX() << "," << Q_error.getY() << "," << Q_error.getZ() << ","
 				<< ev.getX() << "," << ev.getY() << "," << ev.getZ() << ","
 				<< phi.getX() << "," << phi.getY() << "," << phi.getZ() << ","
-				<< velocity_command.linear.x << "," << velocity_command.linear.y << "," << velocity_command.linear.z << ","
-				<< 0 << "," << 0 << "," << velocity_command.linear.z << ","
+				<< vc.getX() << "," << vc.getY() << "," << vc.getZ() << ","
+				<< wc.getX() << "," << wc.getY() << "," << wc.getZ() << ","
 				<< vcd.getX() << "," << vcd.getY() << "," << vcd.getZ() << ","
 				<< wcd.getX() << "," << wcd.getY() << "," << wcd.getZ() << ","
+				<< w_body.getX() << "," << w_body.getY() << "," << w_body.getZ() << ","
+				<< velocity_command.linear.x << "," << velocity_command.linear.y << "," << velocity_command.linear.z << ","
+				<< velocity_command.angular.x << "," << velocity_command.angular.y << "," << velocity_command.angular.z << ","
 				<< Ev.getX() << "," << Ev.getY() << "," << Ev.getZ() << ","
 				<< Phi.getX() << "," << Phi.getY() << "," << Phi.getZ() << ","
 				<< Uvar.getX() << "," << Uvar.getY() << "," << Uvar.getZ() << ","
@@ -1872,9 +1872,9 @@ int main(int argc, char** argv)
 	ros::init(argc,argv,"experiment_node");
 
 	double loop_rate_hz = 30;
-	bool write_to_file = false;
+	bool write_to_file = true;
 	
-	std::string filename = "/home/zack/v1_ws/src/homog_track/testing_files/experiment_3.txt";
+	std::string filename = "/home/ncr/ncr_ws/src/homog_track/testing_files/experiment_2.txt";
 	if( (std::remove( filename.c_str() ) != 0) && write_to_file)
 	{
 		std::cout << "file does not exist" << std::endl;
@@ -1883,6 +1883,7 @@ int main(int argc, char** argv)
 	{
 		std::cout << "file deleted" << std::endl;
 	}
+	std::cout << "hi" << std::endl;
 	
 	ImageProcessing image_processing;// image processing
 	//SimulatedImageProcessing simulated_image_processing(loop_rate_hz);// simulated image processing 
