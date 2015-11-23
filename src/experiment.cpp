@@ -168,12 +168,16 @@ class ImageProcessing
 				for (int ii = 0; ii < 4; ii++)
 				{
 					cv::findContours(binary_frames[ii].clone(), contours[ii], CV_RETR_LIST, CV_CHAIN_APPROX_NONE);    
-					std::vector<cv::Point2f> center( contours[ii].size() );// declaring centers to be all zeros the size of contours to hold all the contours circles centers
+					std::vector<cv::Point2d> center( contours[ii].size() );// declaring centers to be all zeros the size of contours to hold all the contours circles centers
 					std::vector<float> radius( contours[ii].size() );// declaring radius to be all zeros the size of contours to hold all the contours circles radius
+					cv::Moments mu_temp;
+					cv::Point2f center_temp;
 					// getting the minimum enclcosing circle for the contours
 					for (int jj = 0; jj < contours[ii].size(); jj++)
 					{
-						minEnclosingCircle( contours[ii][jj], center[jj], radius[jj] );// getting the circle for the current contour
+						mu_temp = cv::moments(contours[ii][jj],false);
+						center[jj] = cv::Point2d(mu_temp.m10/mu_temp.m00,mu_temp.m01/mu_temp.m00);
+						minEnclosingCircle( contours[ii][jj], center_temp, radius[jj] );// getting the circle for the current contour
 						temp_circle = new Circle;// create the new var for storing
 						temp_circle->setCircle(radius[jj], center[jj].x, center[jj].y);// giving it to the circle
 						temp_circles[ii].push_back (*temp_circle);// adding the circle to the temp array
@@ -510,8 +514,8 @@ class SimulatedImageProcessing
 			/********** reference wrt world  **********/
 			double z_ref = 2; //reference height
 			reference_wrt_world.setOrigin(tf::Vector3(0,0,z_ref));//origin
-			tf::Matrix3x3 R_fw(0,1,0,
- 							   1,0,0,
+			tf::Matrix3x3 R_fw(1,0,0,
+							   0,-1,0,
 							   0,0,-1);// rotation of reference wrt world
 			tf::Quaternion Q_fw;// as a quaternion
 			R_fw.getRotation(Q_fw);// initialize quaternion
@@ -717,8 +721,8 @@ class HomogDecomp
 			/********** reference wrt world  **********/
 			double z_ref = 2; //reference height
 			reference_wrt_world.setOrigin(tf::Vector3(0,0,z_ref));//origin
-			tf::Matrix3x3 R_fw(0,1,0,
- 							   1,0,0,
+			tf::Matrix3x3 R_fw(1,0,0,
+							   0,-1,0,
 							   0,0,-1);// rotation of reference wrt world
 			tf::Quaternion Q_fw;// as a quaternion
 			R_fw.getRotation(Q_fw);// initialize quaternion
@@ -1003,7 +1007,7 @@ class Controller
 		ros::NodeHandle nh;
 		tf::TransformBroadcaster br;
 		tf::TransformListener listener;
-		ros::Subscriber decomp_sub, joy_sub, body_imu_sub;
+		ros::Subscriber decomp_sub, joy_sub, body_imu_sub, body_mocap_sub;
 		ros::Publisher takeoff_pub, land_pub, reset_pub, cmd_vel_pub;
 		
 		/********** Time Values **********/
@@ -1029,18 +1033,21 @@ class Controller
 										 0,Kvs,0,
 										 0,0,Kvs);// linear velocity gain matrix
 		double gamma_1 = std::pow(10,-2);// control gains for the z_star_hat_dot calculation
-		double gamma_2 = std::pow(10,-4);
+		//double gamma_2 = std::pow(10,-4);
 		//double gamma_1 = 0;
-		//double gamma_2 = 0;
+		double gamma_2 = 0;
 		double zr_star_hat = 2;// current value for zr_star_hat
 		
 		/********** Points **********/
 		tf::Vector3 P_red_wrt_world, P_green_wrt_world, P_cyan_wrt_world, P_purple_wrt_world;// homography points wrt world
 		tf::Transform red_wrt_world, green_wrt_world, cyan_wrt_world, purple_wrt_world;//transforms for the marker points
+		tf::Transform red_wrt_world_calc, green_wrt_world_calc, cyan_wrt_world_calc, purple_wrt_world_calc;//transforms for the marker points calcs
 		
 		/********** UAV body **********/
 		tf::Transform camera_wrt_body;//transform of the camera wrt the body
 		tf::Vector3 w_body = tf::Vector3(0,0,0);// angular velocity of the body wrt world expressed in the body, from imu
+		tf::Transform body_wrt_world_mocap;//pose of body from the mocap
+		tf::Transform body_wrt_world_calc;//pose of body from calculations
 		
 		/********** Reference **********/
 		tf::Vector3 mr_bar_ref, mg_bar_ref, mc_bar_ref, mp_bar_ref;// points wrt reference
@@ -1054,6 +1061,7 @@ class Controller
 		geometry_msgs::Point pr_gm, pg_gm, pc_gm, pp_gm;// points pixels wrt camera for message
 		homog_track::ImageProcessingMsg pixels_out;
 		tf::Transform camera_wrt_world; // transform for camera
+		tf::Transform camera_wrt_world_calc;
 		
 		/********** Decomp Declarations **********/
 		tf::Transform camera_wrt_reference;// transform of camera wrt reference
@@ -1129,6 +1137,7 @@ class Controller
 		bool start_autonomous = false;
 		bool new_decomp_recieved = false;
 		bool new_joy_recieved = false;
+		bool update_time_and_vel = false;
 		/********** output command choice and xbox controller **********/
 		geometry_msgs::Twist velocity_command;
 		geometry_msgs::Twist command_from_xbox;
@@ -1144,6 +1153,7 @@ class Controller
 			number_of_integrating_samples = loop_rate_hz*0.2;
 			decomp_sub = nh.subscribe("decomposed_homography",1, &Controller::decomp_callback, this);// subscribing to the decomp message
 			body_imu_sub = nh.subscribe("/ardrone/imu", 1, &Controller::body_imu_callback, this);// subscribing to the imu
+			body_mocap_sub = nh.subscribe("/ardrone/pose", 1, &Controller::body_pose_callback, this);// subscribing to the p
 			cmd_vel_pub = nh.advertise<geometry_msgs::Twist>("cmd_vel",1);// publisher for the decomposed stuff
 			takeoff_pub = nh.advertise<std_msgs::Empty>("ardrone/takeoff",1);
 			land_pub = nh.advertise<std_msgs::Empty>("ardrone/land",1);
@@ -1151,9 +1161,16 @@ class Controller
 			joy_sub = nh.subscribe("joy",1,&Controller::joy_callback,this);
 			
 			cmd_vel_pub.publish(geometry_msgs::Twist());// initially sending it a desired command of 0
+			
 			/********** Set transform for camera wrt frame **********/
 			camera_wrt_body.setOrigin(tf::Vector3(0.147307457005166, 0.006462951419338, -0.037134150975938));//origin
 			camera_wrt_body.setRotation(tf::Quaternion(-0.686755898248694, 0.670811209506236, -0.165804584561225, 0.225439733875439));
+			
+			/********** Set transform for body wrt world from mocap and calculated **********/
+			body_wrt_world_mocap.setOrigin(tf::Vector3(0,0,0));
+			body_wrt_world_mocap.setRotation(tf::Quaternion(0,0,0,1));
+			body_wrt_world_calc.setOrigin(tf::Vector3(0,0,0));
+			body_wrt_world_calc.setRotation(tf::Quaternion(0,0,0,1));
 			
 			/******************** Writing headers to file ********************/
 			if (write_to_file)
@@ -1168,6 +1185,22 @@ class Controller
 								<< "prdx," << "prdy," << "prdz,"
 								<< "mrx," << "mry," << "mrz,"
 								<< "mrdx," << "mrdy," << "mrdz,"
+								<< "red_calc_x," << "red_calc_y," << "red_calc_z,"
+								<< "green_calc_x," << "green_calc_y," << "green_calc_z,"
+								<< "cyan_calc_x," << "cyan_calc_y," << "cyan_calc_z,"
+								<< "purple_calc_x," << "purple_calc_y," << "purple_calc_z,"
+								<< "red_x," << "red_y," << "red_z,"
+								<< "green_x," << "green_y," << "green_z,"
+								<< "cyan_x," << "cyan_y," << "cyan_z,"
+								<< "purple_x," << "purple_y," << "purple_z,"
+								<< "camera_calc_orig_x," << "camera_calc_orig_y," << "camera_calc_orig_z,"
+								<< "camera_mocap_orig_x," << "camera_mocap_orig_y," << "camera_mocap_orig_z,"
+								<< "camera_calc_rot_w," << "camera_calc_rot_x," << "camera_calc_rot_y," << "camera_calc_rot_z,"
+								<< "camera_mocap_rot_w," << "camera_mocap_rot_x," << "camera_mocap_rot_y," << "camera_mocap_rot_z,"
+								<< "body_calc_orig_x," << "body_calc_orig_y," << "body_calc_orig_z,"
+								<< "body_mocap_orig_x," << "body_mocap_orig_y," << "body_mocap_orig_z,"
+								<< "body_calc_rot_w," << "body_calc_rot_x," << "body_calc_rot_y," << "body_calc_rot_z,"
+								<< "body_mocap_rot_w," << "body_mocap_rot_x," << "body_mocap_rot_y," << "body_mocap_rot_z,"
 								<< "pex," << "pey," << "pez,"
 								<< "pedx," << "pedy," << "pedz,"
 								<< "qw," << "qx," << "qy," << "qz,"
@@ -1194,7 +1227,9 @@ class Controller
 					output_file.close();
 				}
 			}
-			
+			/********** camera wrt world **********/
+			camera_wrt_world.setIdentity();
+			camera_wrt_world_calc.setIdentity();
 			
 			/********** markers wrt world **********/
 			P_red_wrt_world = tf::Vector3(-0.05,-0.05,0); P_green_wrt_world = tf::Vector3(-0.05,0.05,0); P_cyan_wrt_world = tf::Vector3(0.05,0.05,0); P_purple_wrt_world = tf::Vector3(0.05,-0.05,0);// homography points wrt world
@@ -1202,6 +1237,10 @@ class Controller
 			green_wrt_world.setIdentity(); green_wrt_world.setOrigin(P_green_wrt_world);//green
 			cyan_wrt_world.setIdentity(); cyan_wrt_world.setOrigin(P_cyan_wrt_world);//cyan
 			purple_wrt_world.setIdentity(); purple_wrt_world.setOrigin(P_purple_wrt_world);//purple
+			red_wrt_world_calc.setIdentity(); red_wrt_world_calc.setOrigin(P_red_wrt_world);//red
+			green_wrt_world_calc.setIdentity(); green_wrt_world_calc.setOrigin(P_green_wrt_world);//green
+			cyan_wrt_world_calc.setIdentity(); cyan_wrt_world_calc.setOrigin(P_cyan_wrt_world);//cyan
+			purple_wrt_world_calc.setIdentity(); purple_wrt_world_calc.setOrigin(P_purple_wrt_world);//purple
 
 			/********** reference wrt world  **********/
 			double z_ref = 2; //reference height
@@ -1212,8 +1251,6 @@ class Controller
 			tf::Quaternion Q_fw;// as a quaternion
 			R_fw.getRotation(Q_fw);// initialize quaternion
 			reference_wrt_world.setRotation(Q_fw);// set the rotation
-			
-			
 			
 			/********** markers wrt reference **********/
 			tf::Vector3 temp_v;
@@ -1244,7 +1281,7 @@ class Controller
 			// vcd is q_cam_wrt_body * vcd_temp * q_cam_wrt_body.inverse(), dont need the cross because there is no virtual drone for the vector
 			tf::Quaternion vcd_body_temp = ((camera_wrt_body.getRotation().inverse())*tf::Quaternion(vcd_temp.getX(), vcd_temp.getY(), vcd_temp.getZ(), 0)) * camera_wrt_body.getRotation();
 			vcd = tf::Vector3(vcd_body_temp.getX(), vcd_body_temp.getY(), vcd_body_temp.getZ());
-			// wcd is q_cam_wrt_body * wcd_temp * q_cam_wrt_body.inverse()
+			// wcd is q_cam_wrt_body * wcd_temp * q_cam_wrt_body.inverse() but reverse this because changed the setup of the camera to be wrt the body
 			tf::Quaternion wcd = ((camera_wrt_body.getRotation().inverse()) * tf::Quaternion(wcd_temp.getX(), wcd_temp.getY(), wcd_temp.getZ(), 0)) * camera_wrt_body.getRotation();
 			wcd_cv.at<double>(0,0) = wcd.getX(); wcd_cv.at<double>(1,0) = wcd.getY(); wcd_cv.at<double>(2,0) = wcd.getZ(); 
 			
@@ -1328,12 +1365,16 @@ class Controller
 		void decomp_callback(const homog_track::DecompMsg& msg)
 		{
 			tf::Matrix3x3 R_fc_temp = tf::Matrix3x3(0,0,0,0,0,0,0,0,0);
+			tf::Vector3 t_fc_temp = tf::Vector3(0,0,0);
+			bool rotation_found = false;
+			
 			current_time = msg.header.stamp;
 			if (first_run)
 			{
 				first_run = false;
 				start_time = msg.header.stamp;
 				last_time = current_time;
+				update_time_and_vel = true;
 				//pr_ref.setX() = msg.ref_cam_pixels.pr.x; pr_ref.setY() = msg.ref_cam_pixels.pr.y; pr_ref.setZ() = 1;//red pixels
 				//pg_ref.setX() = msg.ref_cam_pixels.pg.x; pg_ref.setY() = msg.ref_cam_pixels.pg.y; pg_ref.setZ() = 1;//green pixels
 				//pc_ref.setX() = msg.ref_cam_pixels.pc.x; pc_ref.setY() = msg.ref_cam_pixels.pc.y; pc_ref.setZ() = 1;//cyan pixels
@@ -1351,6 +1392,9 @@ class Controller
 					{
 						R_fc_temp[ii/3][ii%3] = msg.R1[ii];
 					}
+					rotation_found = true;
+					t_fc_temp.setValue(msg.t1[0],msg.t1[1],msg.t1[2]);
+					t_fc_temp *= zr_star_hat;
 				}
 				else
 				{
@@ -1358,6 +1402,9 @@ class Controller
 					{
 						R_fc_temp[ii/3][ii%3] = msg.R2[ii];
 					}
+					rotation_found = true;
+					t_fc_temp.setValue(msg.t2[0],msg.t2[1],msg.t2[2]);
+					t_fc_temp *= zr_star_hat;
 				}
 			}
 			else if(msg.n1[2] != -1 && msg.n2[2] == -1)
@@ -1366,41 +1413,106 @@ class Controller
 				{
 					R_fc_temp[ii/3][ii%3] = msg.R1[ii];
 				}
+				rotation_found = true;
+				t_fc_temp.setValue(msg.t1[0],msg.t1[1],msg.t1[2]);
+				t_fc_temp *= zr_star_hat;
 			}
-			(R_fc_temp.transpose()).getRotation(Q_cf);// take transpose to get camera wrt reference
-			Q_cf_negated = tf::Quaternion(-Q_cf.getX(),-Q_cf.getY(),-Q_cf.getZ(),-Q_cf.getW()); // getting the negated version of the quaternion for the check
-			// checking if the quaternion has flipped
-			double Q_norm_camera_diff = std::sqrt(std::pow(Q_cf.getX() - Q_cf_last.getX(),2.0)
-										  + std::pow(Q_cf.getY() - Q_cf_last.getY(),2.0) 
-										  + std::pow(Q_cf.getZ() - Q_cf_last.getZ(),2.0) 
-										  + std::pow(Q_cf.getW() - Q_cf_last.getW(),2.0));
-			double Q_norm_camera_neg_diff = std::sqrt(std::pow(Q_cf_negated.getX() - Q_cf_last.getX(),2.0)
-										  + std::pow(Q_cf_negated.getY() - Q_cf_last.getY(),2.0) 
-										  + std::pow(Q_cf_negated.getZ() - Q_cf_last.getZ(),2.0) 
-										  + std::pow(Q_cf_negated.getW() - Q_cf_last.getW(),2.0));
-			if (Q_norm_camera_diff > Q_norm_camera_neg_diff)
-			{
-				Q_cf = Q_cf_negated;
-			}
-			Q_cf_last = Q_cf;// updating the last
-			camera_wrt_reference.setRotation(Q_cf);
-			pr.setX(msg.cam_pixels.pr.x); pr.setY(msg.cam_pixels.pr.y); pr.setZ(1);//red pixels
-			//std::cout << "pr:\n x: " << pr.getX() << " y: " << pr.getY() << " z: " << pr.getZ() << std::endl;
-			pg.setX(msg.cam_pixels.pg.x); pg.setY(msg.cam_pixels.pg.y); pg.setZ(1);//green pixels
-			//std::cout << "pg:\n x: " << pg.getX() << " y: " << pg.getY() << " z: " << pg.getZ() << std::endl;
-			pc.setX(msg.cam_pixels.pc.x); pc.setY(msg.cam_pixels.pc.y); pc.setZ(1);//cyan pixels
-			//std::cout << "pc:\n x: " << pc.getX() << " y: " << pc.getY() << " z: " << pc.getZ() << std::endl;
-			pp.setX(msg.cam_pixels.pp.x); pp.setY(msg.cam_pixels.pp.y); pp.setZ(1);//purple pixels
-			//std::cout << "pp:\n x: " << pp.getX() << " y: " << pp.getY() << " z: " << pp.getZ() << std::endl;
-			alpha_red = msg.alphar;
 			
-			// if it is not the first run and start autonomous is true want to update the desired and then output a new command otherwise just pass
-			if (!first_run && start_autonomous)
+			if (rotation_found)
 			{
-				new_decomp_recieved = true;
+				new_decomp_recieved = true;//rotation was found so set the decomp to true
+				(R_fc_temp.transpose()).getRotation(Q_cf);// take transpose to get camera wrt reference
+				Q_cf_negated = tf::Quaternion(-Q_cf.getX(),-Q_cf.getY(),-Q_cf.getZ(),-Q_cf.getW()); // getting the negated version of the quaternion for the check
+				// checking if the quaternion has flipped
+				double Q_norm_camera_diff = std::sqrt(std::pow(Q_cf.getX() - Q_cf_last.getX(),2.0)
+											  + std::pow(Q_cf.getY() - Q_cf_last.getY(),2.0) 
+											  + std::pow(Q_cf.getZ() - Q_cf_last.getZ(),2.0) 
+											  + std::pow(Q_cf.getW() - Q_cf_last.getW(),2.0));
+				double Q_norm_camera_neg_diff = std::sqrt(std::pow(Q_cf_negated.getX() - Q_cf_last.getX(),2.0)
+											  + std::pow(Q_cf_negated.getY() - Q_cf_last.getY(),2.0) 
+											  + std::pow(Q_cf_negated.getZ() - Q_cf_last.getZ(),2.0) 
+											  + std::pow(Q_cf_negated.getW() - Q_cf_last.getW(),2.0));
+				if (Q_norm_camera_diff > Q_norm_camera_neg_diff)
+				{
+					Q_cf = Q_cf_negated;
+				}
+				Q_cf_last = Q_cf;// updating the last
+				camera_wrt_reference.setRotation(Q_cf);
+				pr.setX(msg.cam_pixels.pr.x); pr.setY(msg.cam_pixels.pr.y); pr.setZ(1);//red pixels
+				//std::cout << "pr:\n x: " << pr.getX() << " y: " << pr.getY() << " z: " << pr.getZ() << std::endl;
+				pg.setX(msg.cam_pixels.pg.x); pg.setY(msg.cam_pixels.pg.y); pg.setZ(1);//green pixels
+				//std::cout << "pg:\n x: " << pg.getX() << " y: " << pg.getY() << " z: " << pg.getZ() << std::endl;
+				pc.setX(msg.cam_pixels.pc.x); pc.setY(msg.cam_pixels.pc.y); pc.setZ(1);//cyan pixels
+				//std::cout << "pc:\n x: " << pc.getX() << " y: " << pc.getY() << " z: " << pc.getZ() << std::endl;
+				pp.setX(msg.cam_pixels.pp.x); pp.setY(msg.cam_pixels.pp.y); pp.setZ(1);//purple pixels
+				//std::cout << "pp:\n x: " << pp.getX() << " y: " << pp.getY() << " z: " << pp.getZ() << std::endl;
+				alpha_red = msg.alphar;
+				alpha_green = msg.alphag;
+				alpha_cyan = msg.alphac;
+				alpha_purple = msg.alphap;
+				
+				// estimating the body position
+				camera_wrt_reference.setOrigin(-1*((R_fc_temp.transpose())*t_fc_temp));
+				br.sendTransform(tf::StampedTransform(reference_wrt_world, current_time, "world", "reference_image"));
+				br.sendTransform(tf::StampedTransform(camera_wrt_reference, current_time, "reference_image", "camera_image_calc"));
+				br.sendTransform(tf::StampedTransform(camera_wrt_body.inverse(), current_time, "camera_image_calc", "body"));
+				br.sendTransform(tf::StampedTransform(red_wrt_world, current_time, "world", "red"));
+				br.sendTransform(tf::StampedTransform(green_wrt_world, current_time, "world", "green"));
+				br.sendTransform(tf::StampedTransform(cyan_wrt_world, current_time, "world", "cyan"));
+				br.sendTransform(tf::StampedTransform(purple_wrt_world, current_time, "world", "purple"));
+				
+				tf::StampedTransform body_wrt_world_calc_temp;
+				listener.waitForTransform("world", "body", current_time, ros::Duration(1.0));
+				listener.lookupTransform("world", "body", current_time, body_wrt_world_calc_temp);
+				body_wrt_world_calc = body_wrt_world_calc_temp;
+				
+				//estimating the position of the red green cyan and purple features
+				mr = A.inverse()*pr;
+				mg = A.inverse()*pg;
+				mc = A.inverse()*pc;
+				mp = A.inverse()*pp;
+				mr_bar = mr*(zr_star_hat/alpha_red);
+				mg_bar = mg*(zr_star_hat/alpha_green);
+				mc_bar = mc*(zr_star_hat/alpha_cyan);
+				mp_bar = mp*(zr_star_hat/alpha_purple);
+				
+				tf::StampedTransform camera_wrt_world_calc_temp;
+				listener.waitForTransform("world", "camera_image_calc", current_time, ros::Duration(1.0));
+				listener.lookupTransform("world", "camera_image_calc", current_time, camera_wrt_world_calc_temp);
+				camera_wrt_world_calc = camera_wrt_world_calc_temp;
+				
+				red_wrt_world_calc = camera_wrt_world_calc*tf::Transform(camera_wrt_world_calc.getRotation().inverse(),mr_bar);
+				green_wrt_world_calc = camera_wrt_world_calc*tf::Transform(camera_wrt_world_calc.getRotation().inverse(),mg_bar);
+				cyan_wrt_world_calc = camera_wrt_world_calc*tf::Transform(camera_wrt_world_calc.getRotation().inverse(),mc_bar);
+				purple_wrt_world_calc = camera_wrt_world_calc*tf::Transform(camera_wrt_world_calc.getRotation().inverse(),mp_bar);
+				
+				
+				//tf::Quaternion mr_bar_4 = (camera_wrt_world_calc.getRotation()*tf::Quaternion(mr_bar.getX(), mr_bar.getY(), mr_bar.getZ(), 0))*camera_wrt_world_calc.getRotation().inverse();
+				//tf::Quaternion mg_bar_4 = (camera_wrt_world_calc.getRotation()*tf::Quaternion(mg_bar.getX(), mg_bar.getY(), mg_bar.getZ(), 0))*camera_wrt_world_calc.getRotation().inverse();
+				//tf::Quaternion mc_bar_4 = (camera_wrt_world_calc.getRotation()*tf::Quaternion(mc_bar.getX(), mc_bar.getY(), mc_bar.getZ(), 0))*camera_wrt_world_calc.getRotation().inverse();
+				//tf::Quaternion mp_bar_4 = (camera_wrt_world_calc.getRotation()*tf::Quaternion(mp_bar.getX(), mp_bar.getY(), mp_bar.getZ(), 0))*camera_wrt_world_calc.getRotation().inverse();
+				
+				//red_wrt_world_calc.setOrigin(tf::Vector3(mr_bar_4.getX(), mr_bar_4.getY(), mr_bar_4.getZ()));//red
+				//green_wrt_world_calc.setOrigin(tf::Vector3(mg_bar_4.getX(), mg_bar_4.getY(), mg_bar_4.getZ()));//green
+				//cyan_wrt_world_calc.setOrigin(tf::Vector3(mc_bar_4.getX(), mc_bar_4.getY(), mc_bar_4.getZ()));//cyan
+				//purple_wrt_world_calc.setOrigin(tf::Vector3(mp_bar_4.getX(), mp_bar_4.getY(), mp_bar_4.getZ()));//purple
+
+				br.sendTransform(tf::StampedTransform(red_wrt_world_calc, current_time, "world", "red_calc"));
+				br.sendTransform(tf::StampedTransform(green_wrt_world_calc, current_time, "world", "green_calc"));
+				br.sendTransform(tf::StampedTransform(cyan_wrt_world_calc, current_time, "world", "cyan_calc"));
+				br.sendTransform(tf::StampedTransform(purple_wrt_world_calc, current_time, "world", "purple_calc"));
+				
+				br.sendTransform(tf::StampedTransform(camera_wrt_body, current_time, "ardrone", "camera_image"));
 			}
-			last_time = current_time;
 			
+		}
+		
+		/********** callback for the pose from the mocap **********/
+		void body_pose_callback(const geometry_msgs::PoseStamped& msg)
+		{
+			body_wrt_world_mocap.setOrigin(tf::Vector3(msg.pose.position.x, msg.pose.position.y, msg.pose.position.z));
+			body_wrt_world_mocap.setRotation(tf::Quaternion(msg.pose.orientation.x, msg.pose.orientation.y, msg.pose.orientation.z, msg.pose.orientation.w));
+			camera_wrt_world = body_wrt_world_mocap*camera_wrt_body;
 		}
 		
 		/********** callback for the controller **********/
@@ -1616,8 +1728,6 @@ class Controller
 		/********** update the pixels and everything with them **********/
 		void update_pixels()
 		{
-			tf::Vector3 mr_temp = A.inverse()*pr; 
-			mr = mr_temp;//normalized pixel coordinates
 			tf::Matrix3x3 ss_mr_temp(           0, -1*mr.getZ(),    mr.getY(),
 										    mr.getZ(),            0, -1*mr.getX(),
 										 -1*mr.getY(),    mr.getX(),           0);
@@ -1692,7 +1802,7 @@ class Controller
 			//std::cout << "zr star hat dot: " << zr_star_hat_dot << std::endl;
 			//std::cout << "time from last: " << time_from_last << std::endl;
 			//std::cout << "zr star hat before: " << zr_star_hat << std::endl;
-			zr_star_hat += zr_star_hat_dot*time_from_last;
+			//zr_star_hat += zr_star_hat_dot*time_from_last;
 			//std::cout << "zr star hat after: " << zr_star_hat << std::endl;
 		}
 		
@@ -1781,10 +1891,12 @@ class Controller
 		/********** velocity command **********/
 		void output_velocity_command()
 		{
-			if (alpha_red > 0 && start_controller)
+			if (alpha_red > 0 && start_controller && update_time_and_vel)
 			{
 				std::cout << "controller" << std::endl;
 				generate_velocity_command_from_tracking();
+				last_time = current_time;
+				update_time_and_vel = false;
 			}
 			
 			if (start_autonomous && start_controller)
@@ -1802,7 +1914,6 @@ class Controller
 					velocity_command.linear.x = vc_body_term1.getX() + vc_body_term2.getX();
 					velocity_command.linear.y = vc_body_term1.getY() + vc_body_term2.getY();
 					velocity_command.linear.z = vc_body_term1.getZ() + vc_body_term2.getZ();
-					
 				
 					// output angular velocity is q_cam_wrt_body * wc * q_cam_wrt_body.inverse()
 					tf::Quaternion wc_body = (camera_wrt_body.getRotation() * tf::Quaternion(wc.getX(), wc.getY(), wc.getZ(), 0)) * (camera_wrt_body.getRotation().inverse());
@@ -1844,6 +1955,22 @@ class Controller
 				<< prd.getX() << "," << prd.getY() << "," << prd.getZ() << ","
 				<< mr.getX() << "," << mr.getY() << "," << mr.getZ() << ","
 				<< mrd.getX() << "," << mrd.getY() << "," << mrd.getZ() << ","
+				<< red_wrt_world_calc.getOrigin().getX() << "," << red_wrt_world_calc.getOrigin().getY() << "," << red_wrt_world_calc.getOrigin().getZ() << ","
+				<< green_wrt_world_calc.getOrigin().getX() << "," << green_wrt_world_calc.getOrigin().getY() << "," << green_wrt_world_calc.getOrigin().getZ() << ","
+				<< cyan_wrt_world_calc.getOrigin().getX() << "," << cyan_wrt_world_calc.getOrigin().getY() << "," << cyan_wrt_world_calc.getOrigin().getZ() << ","
+				<< purple_wrt_world_calc.getOrigin().getX() << "," << purple_wrt_world_calc.getOrigin().getY() << "," << purple_wrt_world_calc.getOrigin().getZ() << ","
+				<< red_wrt_world.getOrigin().getX() << "," << red_wrt_world.getOrigin().getY() << "," << red_wrt_world.getOrigin().getZ() << ","
+				<< green_wrt_world.getOrigin().getX() << "," << green_wrt_world.getOrigin().getY() << "," << green_wrt_world.getOrigin().getZ() << ","
+				<< cyan_wrt_world.getOrigin().getX() << "," << cyan_wrt_world.getOrigin().getY() << "," << cyan_wrt_world.getOrigin().getZ() << ","
+				<< purple_wrt_world.getOrigin().getX() << "," << purple_wrt_world.getOrigin().getY() << "," << purple_wrt_world.getOrigin().getZ() << ","
+				<< camera_wrt_world_calc.getOrigin().getX() << "," << camera_wrt_world_calc.getOrigin().getY() << "," << camera_wrt_world_calc.getOrigin().getZ() << ","
+				<< camera_wrt_world.getOrigin().getX() << "," << camera_wrt_world.getOrigin().getY() << "," << camera_wrt_world.getOrigin().getZ() << ","
+				<< camera_wrt_world_calc.getRotation().getW() << "," << camera_wrt_world_calc.getRotation().getX() << "," << camera_wrt_world_calc.getRotation().getY() << "," << camera_wrt_world_calc.getRotation().getZ() << ","
+				<< camera_wrt_world.getRotation().getW() << "," << camera_wrt_world.getRotation().getX() << "," << camera_wrt_world.getRotation().getY() << "," << camera_wrt_world.getRotation().getZ() << ","
+				<< body_wrt_world_calc.getOrigin().getX() << "," << body_wrt_world_calc.getOrigin().getY() << "," << body_wrt_world_calc.getOrigin().getZ() << ","
+				<< body_wrt_world_mocap.getOrigin().getX() << "," << body_wrt_world_mocap.getOrigin().getY() << "," << body_wrt_world_mocap.getOrigin().getZ() << ","
+				<< body_wrt_world_calc.getRotation().getW() << "," << body_wrt_world_calc.getRotation().getX() << "," << body_wrt_world_calc.getRotation().getY() << "," << body_wrt_world_calc.getRotation().getZ() << ","
+				<< body_wrt_world_mocap.getRotation().getW() << "," << body_wrt_world_mocap.getRotation().getX() << "," << body_wrt_world_mocap.getRotation().getY() << "," << body_wrt_world_mocap.getRotation().getZ() << ","
 				<< pe.getX() << "," << pe.getY() << "," << pe.getZ() << ","
 				<< ped.getX() << "," << ped.getY() << "," << ped.getZ() << ","
 				<< Q_cf.getW() << "," << Q_cf.getX() << "," << Q_cf.getY() << "," << Q_cf.getZ() << ","
@@ -1869,6 +1996,7 @@ class Controller
 				<< "\n";
 				output_file.close();
 			}
+			
 		}
 
 };
@@ -1905,8 +2033,15 @@ int main(int argc, char** argv)
 		if (controller.new_joy_recieved || controller.new_decomp_recieved)
 		{
 			controller.output_velocity_command();
-			controller.new_joy_recieved = false;
-			controller.new_decomp_recieved = false;
+			if (controller.new_joy_recieved)
+			{
+				controller.new_joy_recieved = false;
+			}
+			if (controller.new_decomp_recieved)
+			{
+				controller.new_decomp_recieved = false;
+			}
+			
 		}
 		ros::spinOnce();
 		loop_rate.sleep();
