@@ -226,12 +226,16 @@ class ImageProcessing
 				for (int ii = 0; ii < 4; ii++)
 				{
 					cv::findContours(binary_frames[ii].clone(), contours[ii], CV_RETR_LIST, CV_CHAIN_APPROX_NONE);    
-					std::vector<cv::Point2f> center( contours[ii].size() );// declaring centers to be all zeros the size of contours to hold all the contours circles centers
+					std::vector<cv::Point2d> center( contours[ii].size() );// declaring centers to be all zeros the size of contours to hold all the contours circles centers
 					std::vector<float> radius( contours[ii].size() );// declaring radius to be all zeros the size of contours to hold all the contours circles radius
+					cv::Moments mu_temp;
+					cv::Point2f center_temp;
 					// getting the minimum enclcosing circle for the contours
 					for (int jj = 0; jj < contours[ii].size(); jj++)
 					{
-						minEnclosingCircle( contours[ii][jj], center[jj], radius[jj] );// getting the circle for the current contour
+						mu_temp = cv::moments(contours[ii][jj],false);
+						center[jj] = cv::Point2d(mu_temp.m10/mu_temp.m00,mu_temp.m01/mu_temp.m00);
+						minEnclosingCircle( contours[ii][jj], center_temp, radius[jj] );// getting the circle for the current contour
 						temp_circle = new Circle;// create the new var for storing
 						temp_circle->setCircle(radius[jj], center[jj].x, center[jj].y);// giving it to the circle
 						temp_circles[ii].push_back (*temp_circle);// adding the circle to the temp array
@@ -507,8 +511,8 @@ int main(int argc, char** argv)
 {   
 	ros::init(argc,argv,"threshold_testing_node");
 
-	double loop_rate_hz = 15;
-	std::string video_file = "/home/zack/v1_ws/experiment_2_last_crash_starttime_3min29sec.avi";
+	double loop_rate_hz = 30;
+	std::string video_file = "/home/zack/v1_ws/experiment_3.avi";
 	ImageGenerator image_generator(video_file);	
 	ImageProcessing image_processing;// image processing
 	
