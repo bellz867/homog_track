@@ -81,7 +81,7 @@ class ImageProcessing
 		geometry_msgs::Point red_circle_p, green_circle_p, cyan_circle_p, purple_circle_p;// the four points for the circles
 		geometry_msgs::Point red_circle_p_curr, green_circle_p_curr, cyan_circle_p_curr, purple_circle_p_curr;// the four points for the circles currently
 		geometry_msgs::Point red_circle_p_last, green_circle_p_last, cyan_circle_p_last, purple_circle_p_last;// the four points for the circles last time
-		float low_pass_gain = 0.75;// tuning gain for the low pass
+		float low_pass_gain = 1;// tuning gain for the low pass
 		bool first_run = false;// boolean to tell if this is the first run
 		homog_track::ImageProcessingMsg pixels_out;//message
 		bool camera_updated = false;
@@ -299,16 +299,16 @@ class ImageProcessing
 							// assiging the values as a function of the current and the last
 							red_circle_p.x = low_pass_gain*red_circle_p_curr.x + (1 - low_pass_gain)*red_circle_p_last.x;
 							red_circle_p.y = low_pass_gain*red_circle_p_curr.y + (1 - low_pass_gain)*red_circle_p_last.y;
-							red_circle_p.z = low_pass_gain*red_circle_p_curr.z + (1 - low_pass_gain)*red_circle_p_last.z;
+							red_circle_p.z = 1;
 							green_circle_p.x = low_pass_gain*green_circle_p_curr.x + (1 - low_pass_gain)*green_circle_p_last.x;
 							green_circle_p.y = low_pass_gain*green_circle_p_curr.y + (1 - low_pass_gain)*green_circle_p_last.y;
-							green_circle_p.z = low_pass_gain*green_circle_p_curr.z + (1 - low_pass_gain)*green_circle_p_last.z;
+							green_circle_p.z = 1;
 							cyan_circle_p.x = low_pass_gain*cyan_circle_p_curr.x + (1 - low_pass_gain)*cyan_circle_p_last.x;
 							cyan_circle_p.y = low_pass_gain*cyan_circle_p_curr.y + (1 - low_pass_gain)*cyan_circle_p_last.y;
-							cyan_circle_p.z = low_pass_gain*cyan_circle_p_curr.z + (1 - low_pass_gain)*cyan_circle_p_last.z;
+							cyan_circle_p.z = 1;
 							purple_circle_p.x = low_pass_gain*purple_circle_p_curr.x + (1 - low_pass_gain)*purple_circle_p_last.x;
 							purple_circle_p.y = low_pass_gain*purple_circle_p_curr.y + (1 - low_pass_gain)*purple_circle_p_last.y;
-							purple_circle_p.z = low_pass_gain*purple_circle_p_curr.z + (1 - low_pass_gain)*purple_circle_p_last.z;
+							purple_circle_p.z = 1;
 
 						}
 						cv::drawContours(blur_frame, contours[ii], -1, *color_con, 1);// draw all the contours
@@ -345,10 +345,7 @@ class ImageProcessing
 							// purple
 							case 3:
 								//std::cout << "purple missing" << std::endl;
-								// assigning the values of the circle to the circle
-								purple_circle_p.x = -1;
-								purple_circle_p.y = -1;
-								purple_circle_p.z = -1;
+								purple_circle_p.x = -1;	purple_circle_p.y = -1;	purple_circle_p.z = -1;// assigning the values of the circle to the circle
 								break;
 						}
 					}
@@ -823,6 +820,11 @@ class HomogDecomp
 			curr_points_m.push_back(mc_norm);
 			curr_points_m.push_back(mp_norm);
 			
+			alpha_red = -1;
+			alpha_green = -1;
+			alpha_cyan = -1;
+			alpha_purple = -1;
+			
 			// if any of the points have a -1 will skip over the homography
 			if (msg.pr.x != -1 && msg.pg.x != -1 && msg.pc.x != -1 && msg.pp.x != -1)
 			{	
@@ -976,20 +978,34 @@ class HomogDecomp
 							decomposed_msg.n2[ii] = -1;
 						}
 					}
-					cam_pixels.pr = msg.pr; cam_pixels.pg = msg.pg; cam_pixels.pc = msg.pc; cam_pixels.pp = msg.pp;
-					
-					decomposed_msg.alphar = alpha_red; decomposed_msg.alphag = alpha_green; decomposed_msg.alphac = alpha_cyan; decomposed_msg.alphap = alpha_purple;// alphas
-					decomposed_msg.cam_pixels = cam_pixels;// pixels
-					decomposed_msg.ref_cam_pixels = ref_cam_pixels;// reference pixels
-					decomposed_msg.header.stamp = msg.header.stamp;// time
-					decomposed_msg.header.frame_id = "decomp_message";
-					homog_decomp_pub.publish(decomposed_msg);// sending the message
 				}
 			}
-
+			else
+			{
+				/********** setting the message and sending it **********/
+				// rotation matricies
+				for (int ii = 0; ii < 9; ii++)
+				{
+					decomposed_msg.R1[ii] = -1;
+					decomposed_msg.R2[ii] = -1;
+				}
+				// normal and normalized translation
+				for (int ii = 0; ii < 3; ii++)
+				{
+					decomposed_msg.t1[ii] = -1;
+					decomposed_msg.n1[ii] = -1;
+					decomposed_msg.t2[ii] = -1;
+					decomposed_msg.n2[ii] = -1;
+				}
+			}
 			
-			
-			
+			cam_pixels.pr = msg.pr; cam_pixels.pg = msg.pg; cam_pixels.pc = msg.pc; cam_pixels.pp = msg.pp;
+			decomposed_msg.alphar = alpha_red; decomposed_msg.alphag = alpha_green; decomposed_msg.alphac = alpha_cyan; decomposed_msg.alphap = alpha_purple;// alphas
+			decomposed_msg.cam_pixels = cam_pixels;// pixels
+			decomposed_msg.ref_cam_pixels = ref_cam_pixels;// reference pixels
+			decomposed_msg.header.stamp = msg.header.stamp;// time
+			decomposed_msg.header.frame_id = "decomp_message";
+			homog_decomp_pub.publish(decomposed_msg);// sending the message
 			//std::cout << "decomp updated" << std::endl;
 		}
 };
@@ -1024,11 +1040,11 @@ class Controller
 		std::string output_file_name; // file name
 		
 		/********** Gains **********/
-		double Kws = 1;// K_w scalar
+		double Kws = 0.1;// K_w scalar
 		tf::Matrix3x3 Kw = tf::Matrix3x3(Kws,0,0,
 										 0,Kws,0,
 										 0,0,Kws);// rotational gain matrix initialize to identity
-		double Kvs = 0.1;
+		double Kvs = 0.05;
 		tf::Matrix3x3 Kv = tf::Matrix3x3(Kvs,0,0,
 										 0,Kvs,0,
 										 0,0,Kvs);// linear velocity gain matrix
@@ -1140,7 +1156,6 @@ class Controller
 		bool update_time_and_vel = false;
 		/********** output command choice and xbox controller **********/
 		geometry_msgs::Twist velocity_command;
-		geometry_msgs::Twist command_from_xbox;
 		int a_button_land_b0 = 0, b_button_reset_b1 = 0, y_button_takeoff_b3 = 0, lb_button_teleop_b4 = 0, rb_button_teleop_b5 = 0;
 		double rt_stick_ud_x_a3 = 0, rt_stick_lr_y_a2 = 0, lt_stick_ud_z_a1 = 0, lt_stick_lr_th_a0 = 0;
 		
@@ -1154,13 +1169,11 @@ class Controller
 			decomp_sub = nh.subscribe("decomposed_homography",1, &Controller::decomp_callback, this);// subscribing to the decomp message
 			body_imu_sub = nh.subscribe("/ardrone/imu", 1, &Controller::body_imu_callback, this);// subscribing to the imu
 			body_mocap_sub = nh.subscribe("/ardrone/pose", 1, &Controller::body_pose_callback, this);// subscribing to the p
-			cmd_vel_pub = nh.advertise<geometry_msgs::Twist>("cmd_vel",1);// publisher for the decomposed stuff
+			cmd_vel_pub = nh.advertise<geometry_msgs::Twist>("cmd_vel_from_control",1);// publisher for the decomposed stuff
 			takeoff_pub = nh.advertise<std_msgs::Empty>("ardrone/takeoff",1);
 			land_pub = nh.advertise<std_msgs::Empty>("ardrone/land",1);
 			reset_pub = nh.advertise<std_msgs::Empty>("ardrone/reset",1);
 			joy_sub = nh.subscribe("joy",1,&Controller::joy_callback,this);
-			
-			cmd_vel_pub.publish(geometry_msgs::Twist());// initially sending it a desired command of 0
 			
 			/********** Set transform for camera wrt frame **********/
 			camera_wrt_body.setOrigin(tf::Vector3(0.147307457005166, 0.006462951419338, -0.037134150975938));//origin
@@ -1418,26 +1431,6 @@ class Controller
 				t_fc_temp *= zr_star_hat;
 			}
 			
-			if (rotation_found)
-			{
-				new_decomp_recieved = true;//rotation was found so set the decomp to true
-				(R_fc_temp.transpose()).getRotation(Q_cf);// take transpose to get camera wrt reference
-				Q_cf_negated = tf::Quaternion(-Q_cf.getX(),-Q_cf.getY(),-Q_cf.getZ(),-Q_cf.getW()); // getting the negated version of the quaternion for the check
-				// checking if the quaternion has flipped
-				double Q_norm_camera_diff = std::sqrt(std::pow(Q_cf.getX() - Q_cf_last.getX(),2.0)
-											  + std::pow(Q_cf.getY() - Q_cf_last.getY(),2.0) 
-											  + std::pow(Q_cf.getZ() - Q_cf_last.getZ(),2.0) 
-											  + std::pow(Q_cf.getW() - Q_cf_last.getW(),2.0));
-				double Q_norm_camera_neg_diff = std::sqrt(std::pow(Q_cf_negated.getX() - Q_cf_last.getX(),2.0)
-											  + std::pow(Q_cf_negated.getY() - Q_cf_last.getY(),2.0) 
-											  + std::pow(Q_cf_negated.getZ() - Q_cf_last.getZ(),2.0) 
-											  + std::pow(Q_cf_negated.getW() - Q_cf_last.getW(),2.0));
-				if (Q_norm_camera_diff > Q_norm_camera_neg_diff)
-				{
-					Q_cf = Q_cf_negated;
-				}
-				Q_cf_last = Q_cf;// updating the last
-				camera_wrt_reference.setRotation(Q_cf);
 				pr.setX(msg.cam_pixels.pr.x); pr.setY(msg.cam_pixels.pr.y); pr.setZ(1);//red pixels
 				//std::cout << "pr:\n x: " << pr.getX() << " y: " << pr.getY() << " z: " << pr.getZ() << std::endl;
 				pg.setX(msg.cam_pixels.pg.x); pg.setY(msg.cam_pixels.pg.y); pg.setZ(1);//green pixels
@@ -1450,61 +1443,92 @@ class Controller
 				alpha_green = msg.alphag;
 				alpha_cyan = msg.alphac;
 				alpha_purple = msg.alphap;
-				
-				// estimating the body position
-				camera_wrt_reference.setOrigin(-1*((R_fc_temp.transpose())*t_fc_temp));
-				br.sendTransform(tf::StampedTransform(reference_wrt_world, current_time, "world", "reference_image"));
-				br.sendTransform(tf::StampedTransform(camera_wrt_reference, current_time, "reference_image", "camera_image_calc"));
-				br.sendTransform(tf::StampedTransform(camera_wrt_body.inverse(), current_time, "camera_image_calc", "body"));
-				br.sendTransform(tf::StampedTransform(red_wrt_world, current_time, "world", "red"));
-				br.sendTransform(tf::StampedTransform(green_wrt_world, current_time, "world", "green"));
-				br.sendTransform(tf::StampedTransform(cyan_wrt_world, current_time, "world", "cyan"));
-				br.sendTransform(tf::StampedTransform(purple_wrt_world, current_time, "world", "purple"));
-				
-				tf::StampedTransform body_wrt_world_calc_temp;
-				listener.waitForTransform("world", "body", current_time, ros::Duration(1.0));
-				listener.lookupTransform("world", "body", current_time, body_wrt_world_calc_temp);
-				body_wrt_world_calc = body_wrt_world_calc_temp;
-				
-				//estimating the position of the red green cyan and purple features
-				mr = A.inverse()*pr;
-				mg = A.inverse()*pg;
-				mc = A.inverse()*pc;
-				mp = A.inverse()*pp;
-				mr_bar = mr*(zr_star_hat/alpha_red);
-				mg_bar = mg*(zr_star_hat/alpha_green);
-				mc_bar = mc*(zr_star_hat/alpha_cyan);
-				mp_bar = mp*(zr_star_hat/alpha_purple);
-				
-				tf::StampedTransform camera_wrt_world_calc_temp;
-				listener.waitForTransform("world", "camera_image_calc", current_time, ros::Duration(1.0));
-				listener.lookupTransform("world", "camera_image_calc", current_time, camera_wrt_world_calc_temp);
-				camera_wrt_world_calc = camera_wrt_world_calc_temp;
-				
-				red_wrt_world_calc = camera_wrt_world_calc*tf::Transform(camera_wrt_world_calc.getRotation().inverse(),mr_bar);
-				green_wrt_world_calc = camera_wrt_world_calc*tf::Transform(camera_wrt_world_calc.getRotation().inverse(),mg_bar);
-				cyan_wrt_world_calc = camera_wrt_world_calc*tf::Transform(camera_wrt_world_calc.getRotation().inverse(),mc_bar);
-				purple_wrt_world_calc = camera_wrt_world_calc*tf::Transform(camera_wrt_world_calc.getRotation().inverse(),mp_bar);
-				
-				
-				//tf::Quaternion mr_bar_4 = (camera_wrt_world_calc.getRotation()*tf::Quaternion(mr_bar.getX(), mr_bar.getY(), mr_bar.getZ(), 0))*camera_wrt_world_calc.getRotation().inverse();
-				//tf::Quaternion mg_bar_4 = (camera_wrt_world_calc.getRotation()*tf::Quaternion(mg_bar.getX(), mg_bar.getY(), mg_bar.getZ(), 0))*camera_wrt_world_calc.getRotation().inverse();
-				//tf::Quaternion mc_bar_4 = (camera_wrt_world_calc.getRotation()*tf::Quaternion(mc_bar.getX(), mc_bar.getY(), mc_bar.getZ(), 0))*camera_wrt_world_calc.getRotation().inverse();
-				//tf::Quaternion mp_bar_4 = (camera_wrt_world_calc.getRotation()*tf::Quaternion(mp_bar.getX(), mp_bar.getY(), mp_bar.getZ(), 0))*camera_wrt_world_calc.getRotation().inverse();
-				
-				//red_wrt_world_calc.setOrigin(tf::Vector3(mr_bar_4.getX(), mr_bar_4.getY(), mr_bar_4.getZ()));//red
-				//green_wrt_world_calc.setOrigin(tf::Vector3(mg_bar_4.getX(), mg_bar_4.getY(), mg_bar_4.getZ()));//green
-				//cyan_wrt_world_calc.setOrigin(tf::Vector3(mc_bar_4.getX(), mc_bar_4.getY(), mc_bar_4.getZ()));//cyan
-				//purple_wrt_world_calc.setOrigin(tf::Vector3(mp_bar_4.getX(), mp_bar_4.getY(), mp_bar_4.getZ()));//purple
-
-				br.sendTransform(tf::StampedTransform(red_wrt_world_calc, current_time, "world", "red_calc"));
-				br.sendTransform(tf::StampedTransform(green_wrt_world_calc, current_time, "world", "green_calc"));
-				br.sendTransform(tf::StampedTransform(cyan_wrt_world_calc, current_time, "world", "cyan_calc"));
-				br.sendTransform(tf::StampedTransform(purple_wrt_world_calc, current_time, "world", "purple_calc"));
-				
-				br.sendTransform(tf::StampedTransform(camera_wrt_body, current_time, "ardrone", "camera_image"));
+			if (rotation_found)
+			{
+				try
+				{
+					(R_fc_temp.transpose()).getRotation(Q_cf);// take transpose to get camera wrt reference
+					Q_cf_negated = tf::Quaternion(-Q_cf.getX(),-Q_cf.getY(),-Q_cf.getZ(),-Q_cf.getW()); // getting the negated version of the quaternion for the check
+					// checking if the quaternion has flipped
+					double Q_norm_camera_diff = std::sqrt(std::pow(Q_cf.getX() - Q_cf_last.getX(),2.0)
+												  + std::pow(Q_cf.getY() - Q_cf_last.getY(),2.0) 
+												  + std::pow(Q_cf.getZ() - Q_cf_last.getZ(),2.0) 
+												  + std::pow(Q_cf.getW() - Q_cf_last.getW(),2.0));
+					double Q_norm_camera_neg_diff = std::sqrt(std::pow(Q_cf_negated.getX() - Q_cf_last.getX(),2.0)
+												  + std::pow(Q_cf_negated.getY() - Q_cf_last.getY(),2.0) 
+												  + std::pow(Q_cf_negated.getZ() - Q_cf_last.getZ(),2.0) 
+												  + std::pow(Q_cf_negated.getW() - Q_cf_last.getW(),2.0));
+					if (Q_norm_camera_diff > Q_norm_camera_neg_diff)
+					{
+						Q_cf = Q_cf_negated;
+					}
+					Q_cf_last = Q_cf;// updating the last
+					camera_wrt_reference.setRotation(Q_cf);
+					
+					// estimating the body position
+					br.sendTransform(tf::StampedTransform(reference_wrt_world, current_time, "world", "reference_image"));
+					br.sendTransform(tf::StampedTransform(camera_wrt_body, current_time, "ardrone", "camera_image"));
+					
+					//camera_wrt_reference.setOrigin(-1*((R_fc_temp.transpose())*t_fc_temp));
+					tf::StampedTransform camera_wrt_reference_calc_temp;
+					listener.waitForTransform("reference_image", "camera_image", current_time, ros::Duration(1.0));
+					listener.lookupTransform("reference_image", "camera_image", current_time, camera_wrt_reference_calc_temp);
+					camera_wrt_reference.setOrigin(camera_wrt_reference_calc_temp.getOrigin());
+					
+					br.sendTransform(tf::StampedTransform(camera_wrt_reference, current_time, "reference_image", "camera_image_calc"));
+					br.sendTransform(tf::StampedTransform(camera_wrt_body.inverse(), current_time, "camera_image_calc", "body"));
+					br.sendTransform(tf::StampedTransform(red_wrt_world, current_time, "world", "red"));
+					br.sendTransform(tf::StampedTransform(green_wrt_world, current_time, "world", "green"));
+					br.sendTransform(tf::StampedTransform(cyan_wrt_world, current_time, "world", "cyan"));
+					br.sendTransform(tf::StampedTransform(purple_wrt_world, current_time, "world", "purple"));
+					
+					tf::StampedTransform body_wrt_world_calc_temp;
+					listener.waitForTransform("world", "body", current_time, ros::Duration(1.0));
+					listener.lookupTransform("world", "body", current_time, body_wrt_world_calc_temp);
+					body_wrt_world_calc = body_wrt_world_calc_temp;
+					
+					//estimating the position of the red green cyan and purple features
+					mr = A.inverse()*pr;
+					mg = A.inverse()*pg;
+					mc = A.inverse()*pc;
+					mp = A.inverse()*pp;
+					mr_bar = mr*(zr_star_hat/alpha_red);
+					mg_bar = mg*(zr_star_hat/alpha_green);
+					mc_bar = mc*(zr_star_hat/alpha_cyan);
+					mp_bar = mp*(zr_star_hat/alpha_purple);
+					
+					tf::StampedTransform camera_wrt_world_calc_temp;
+					listener.waitForTransform("world", "camera_image_calc", current_time, ros::Duration(1.0));
+					listener.lookupTransform("world", "camera_image_calc", current_time, camera_wrt_world_calc_temp);
+					camera_wrt_world_calc = camera_wrt_world_calc_temp;
+					
+					red_wrt_world_calc = camera_wrt_world_calc*tf::Transform(camera_wrt_world_calc.getRotation().inverse(),mr_bar);
+					green_wrt_world_calc = camera_wrt_world_calc*tf::Transform(camera_wrt_world_calc.getRotation().inverse(),mg_bar);
+					cyan_wrt_world_calc = camera_wrt_world_calc*tf::Transform(camera_wrt_world_calc.getRotation().inverse(),mc_bar);
+					purple_wrt_world_calc = camera_wrt_world_calc*tf::Transform(camera_wrt_world_calc.getRotation().inverse(),mp_bar);
+					
+					
+					//tf::Quaternion mr_bar_4 = (camera_wrt_world_calc.getRotation()*tf::Quaternion(mr_bar.getX(), mr_bar.getY(), mr_bar.getZ(), 0))*camera_wrt_world_calc.getRotation().inverse();
+					//tf::Quaternion mg_bar_4 = (camera_wrt_world_calc.getRotation()*tf::Quaternion(mg_bar.getX(), mg_bar.getY(), mg_bar.getZ(), 0))*camera_wrt_world_calc.getRotation().inverse();
+					//tf::Quaternion mc_bar_4 = (camera_wrt_world_calc.getRotation()*tf::Quaternion(mc_bar.getX(), mc_bar.getY(), mc_bar.getZ(), 0))*camera_wrt_world_calc.getRotation().inverse();
+					//tf::Quaternion mp_bar_4 = (camera_wrt_world_calc.getRotation()*tf::Quaternion(mp_bar.getX(), mp_bar.getY(), mp_bar.getZ(), 0))*camera_wrt_world_calc.getRotation().inverse();
+					
+					//red_wrt_world_calc.setOrigin(tf::Vector3(mr_bar_4.getX(), mr_bar_4.getY(), mr_bar_4.getZ()));//red
+					//green_wrt_world_calc.setOrigin(tf::Vector3(mg_bar_4.getX(), mg_bar_4.getY(), mg_bar_4.getZ()));//green
+					//cyan_wrt_world_calc.setOrigin(tf::Vector3(mc_bar_4.getX(), mc_bar_4.getY(), mc_bar_4.getZ()));//cyan
+					//purple_wrt_world_calc.setOrigin(tf::Vector3(mp_bar_4.getX(), mp_bar_4.getY(), mp_bar_4.getZ()));//purple
+	
+					br.sendTransform(tf::StampedTransform(red_wrt_world_calc, current_time, "world", "red_calc"));
+					br.sendTransform(tf::StampedTransform(green_wrt_world_calc, current_time, "world", "green_calc"));
+					br.sendTransform(tf::StampedTransform(cyan_wrt_world_calc, current_time, "world", "cyan_calc"));
+					br.sendTransform(tf::StampedTransform(purple_wrt_world_calc, current_time, "world", "purple_calc"));
+				}
+				catch (tf::TransformException ex)
+				{
+					std::cout << "failed to do transform" << std::endl;
+				}
 			}
-			
+			new_decomp_recieved = true;//
 		}
 		
 		/********** callback for the pose from the mocap **********/
@@ -1518,25 +1542,11 @@ class Controller
 		/********** callback for the controller **********/
 		void joy_callback(const sensor_msgs::Joy& msg)
 		{
-			command_from_xbox = geometry_msgs::Twist();// cleaning the xbox twist message
-			double joy_gain = 0.1;
 			a_button_land_b0 = msg.buttons[0];// a button lands
-			if (a_button_land_b0 > 0)
-			{
-				land_pub.publish(std_msgs::Empty());
-			}
 			
 			b_button_reset_b1 = msg.buttons[1];// b button resets
-			if (b_button_reset_b1 > 0)
-			{
-				reset_pub.publish(std_msgs::Empty());
-			}
 			
 			y_button_takeoff_b3 = msg.buttons[3];// y button takes off
-			if (y_button_takeoff_b3 > 0)
-			{
-				takeoff_pub.publish(std_msgs::Empty());
-			}
 				
 			lb_button_teleop_b4 = msg.buttons[4];// left bumper for autonomous mode
 			rb_button_teleop_b5 = msg.buttons[5];// right bumper says to start controller
@@ -1557,27 +1567,12 @@ class Controller
 			std::cout << "autonomous mode is: " << start_autonomous << std::endl;
 			
 			rt_stick_ud_x_a3 = joy_deadband(msg.axes[3]);// right thumbstick up and down controls linear x
-			command_from_xbox.linear.x = joy_gain*rt_stick_ud_x_a3;
 			
 			rt_stick_lr_y_a2 = joy_deadband(msg.axes[2]);// right thumbstick left and right controls linear y
-			command_from_xbox.linear.y = joy_gain*rt_stick_lr_y_a2;
 			
 			lt_stick_ud_z_a1 = joy_deadband(msg.axes[1]);// left thumbstick up and down controls linear z
-			command_from_xbox.linear.z = joy_gain*lt_stick_ud_z_a1;
 			
 			lt_stick_lr_th_a0 = joy_deadband(msg.axes[0]);// left thumbstick left and right controls angular z
-			command_from_xbox.angular.z = joy_gain*lt_stick_lr_th_a0;
-			std::cout << "xbox callback" << std::endl;
-			
-			std::cout << "linear x: " << command_from_xbox.linear.x << std::endl;
-			std::cout << "linear y: " << command_from_xbox.linear.y << std::endl;
-			std::cout << "linear z: " << command_from_xbox.linear.z << std::endl;
-			std::cout << "angular z: " << command_from_xbox.linear.z << std::endl;
-			
-			if (first_run || (!first_run && !start_autonomous ) )
-			{
-				new_joy_recieved = true;
-			}
 			
 		}
 		
@@ -1893,7 +1888,6 @@ class Controller
 		{
 			if (alpha_red > 0 && start_controller && update_time_and_vel)
 			{
-				std::cout << "controller" << std::endl;
 				generate_velocity_command_from_tracking();
 				last_time = current_time;
 				update_time_and_vel = false;
@@ -1902,11 +1896,14 @@ class Controller
 			if (start_autonomous && start_controller)
 			{
 				std::cout << "command from controller" << std::endl;
-				std::cout << "wc:\n x: " << wcd.getX() << " y: " << wcd.getY() << " z: " << wcd.getZ() << std::endl;
-				std::cout << "vc:\n x: " << vcd.getX() << " y: " << vcd.getY() << " z: " << vcd.getZ() << std::endl;
+				std::cout << "vc:\n x: " << vc.getX() << " y: " << vc.getY() << " z: " << vc.getZ() << std::endl;
+				std::cout << "wc:\n x: " << wc.getX() << " y: " << wc.getY() << " z: " << wc.getZ() << std::endl;
 				std::cout << "w_body:\n x: " << w_body.getX() << " y: " << w_body.getY() << " z: " << w_body.getZ() << std::endl;
-			
-				if (!std::isnan(vc.getX()) && !std::isnan(vc.getY()) && !std::isnan(vc.getY()) && !std::isnan(wc.getZ()))
+				std::cout << "alpha_red: " << alpha_red  << std::endl;
+				std::cout << "alpha_green: " << alpha_green  << std::endl;
+				std::cout << "alpha_cyan: " << alpha_cyan  << std::endl;
+				std::cout << "alpha_purple: " << alpha_purple  << std::endl;
+				if (!std::isnan(vc.getX()) && !std::isnan(vc.getY()) && !std::isnan(vc.getY()) && !std::isnan(wc.getZ()) && alpha_red > 0 && alpha_green > 0 && alpha_cyan > 0 && alpha_purple > 0)
 				{	
 					// output linear velocity is q_cam_wrt_body * vc * q_cam_wrt_body.inverse() - w_body_wrt_world X p_cam_wrt_body
 					tf::Quaternion vc_body_term1 = (camera_wrt_body.getRotation() * tf::Quaternion(vc.getX(), vc.getY(), vc.getZ(), 0)) * (camera_wrt_body.getRotation().inverse());
@@ -1932,17 +1929,12 @@ class Controller
 					velocity_command.linear.z = 0;
 					velocity_command.angular.z = 0;
 				}
+				std::cout << "linear x: " << velocity_command.linear.x << std::endl;
+				std::cout << "linear y: " << velocity_command.linear.y << std::endl;
+				std::cout << "linear z: " << velocity_command.linear.z << std::endl;
+				std::cout << "angular z: " << velocity_command.linear.z << std::endl;
+				cmd_vel_pub.publish(velocity_command);
 			}
-			else
-			{
-				std::cout << "command from xbox" << std::endl;
-				velocity_command = command_from_xbox;
-			}
-			std::cout << "linear x: " << velocity_command.linear.x << std::endl;
-			std::cout << "linear y: " << velocity_command.linear.y << std::endl;
-			std::cout << "linear z: " << velocity_command.linear.z << std::endl;
-			std::cout << "angular z: " << velocity_command.linear.z << std::endl;
-			cmd_vel_pub.publish(velocity_command);
 			
 			if (write_to_file)
 			{
@@ -2009,7 +2001,7 @@ int main(int argc, char** argv)
 	double loop_rate_hz = 30;
 	bool write_to_file = true;
 	
-	std::string filename = "/home/ncr/ncr_ws/src/homog_track/testing_files/experiment_3.txt";
+	std::string filename = "/home/ncr/ncr_ws/src/homog_track/testing_files/experiment_5.txt";
 	if( (std::remove( filename.c_str() ) != 0) && write_to_file)
 	{
 		std::cout << "file does not exist" << std::endl;
@@ -2030,17 +2022,10 @@ int main(int argc, char** argv)
 	while (ros::ok())
 	{
 		controller.update_desired_pixels();
-		if (controller.new_joy_recieved || controller.new_decomp_recieved)
+		if (controller.new_decomp_recieved)
 		{
 			controller.output_velocity_command();
-			if (controller.new_joy_recieved)
-			{
-				controller.new_joy_recieved = false;
-			}
-			if (controller.new_decomp_recieved)
-			{
-				controller.new_decomp_recieved = false;
-			}
+			controller.new_decomp_recieved = false;
 			
 		}
 		ros::spinOnce();

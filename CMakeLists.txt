@@ -82,10 +82,14 @@ add_executable(nodetastic src/testing_stuff.cpp)
 target_link_libraries(nodetastic ${catkin_LIBRARIES} ${OpenCV_LIBS})
 add_dependencies(nodetastic ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 
-add_executable(experiment src/experiment.cpp)
+add_executable(experiment src/experiment_with_ref_set.cpp)
 target_link_libraries(experiment ${catkin_LIBRARIES} ${OpenCV_LIBS})
 add_dependencies(experiment ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 
 add_executable(threshold_testing_node src/camera_threshold.cpp)
 target_link_libraries(threshold_testing_node ${catkin_LIBRARIES} ${OpenCV_LIBS})
 add_dependencies(threshold_testing_node ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
+
+add_executable(joy_stick_control_node src/joy_stick_control.cpp)
+target_link_libraries(joy_stick_control_node ${catkin_LIBRARIES} ${OpenCV_LIBS})
+add_dependencies(joy_stick_control_node ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
