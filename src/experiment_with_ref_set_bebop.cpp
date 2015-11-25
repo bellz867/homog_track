@@ -131,11 +131,11 @@ class ImageProcessing
 		/********* Constructor for the image processing *********/
 		ImageProcessing() : it_(nh)
 		{
-			image_sub_ = it_.subscribe( "/ardrone/front/image_raw", 1, &ImageProcessing::image_callback, this);// subscribe to ardrone front camera
+			image_sub_ = it_.subscribe( "/bebop/image_raw", 1, &ImageProcessing::image_callback, this);// subscribe to ardrone front camera
 			image_pub_ = it_.advertise("processed_image", 1);// publish processed image
 			pixel_pub = nh.advertise<homog_track::ImageProcessingMsg>("feature_pixels", 1);//pixel publisher
-			A = cv::Mat::zeros(3,3,CV_64F); A.at<double>(0,0) = 567.79; A.at<double>(0,2) = 337.35; A.at<double>(1,1) = 564.52; A.at<double>(1,2) = 169.54; A.at<double>(2,2) = 1; // camera matrix for the ardrone
-			dC.push_back(-0.5122398601387984); dC.push_back(0.2625218940944695); dC.push_back(-0.0009892579344331395); dC.push_back(0.002480111502028633); dC.push_back(0.0); // distortion matrix for the ardrone
+			A = cv::Mat::zeros(3,3,CV_64F); A.at<double>(0,0) = 396.17782; A.at<double>(0,2) = 322.453185; A.at<double>(1,1) = 399.798333; A.at<double>(1,2) = 174.243174; A.at<double>(2,2) = 1; // camera matrix for the ardrone
+			dC.push_back(-0.001983); dC.push_back(0.015844); dC.push_back(-0.003171); dC.push_back(0.001506); dC.push_back(0.0); // distortion matrix for the ardrone
 		}
 
 		/********* Callback for the image processing *********/
@@ -486,9 +486,9 @@ class SimulatedImageProcessing
 		double Q_norm_current_diff, Q_norm_negated_diff;// norms to determine which rotation is closer to last
 		
 		/********* Cam info **********/
-		tf::Matrix3x3 A = tf::Matrix3x3(567.79, 0, 337.35,
-										0, 564.52, 169.54,
-										0,0,1);// camera matrix
+		tf::Matrix3x3 A = tf::Matrix3x3(396.17782, 0, 322.453185,
+										0, 399.798333, 174.243174,
+										0, 0, 1);// camera matrix// camera matrix
 										
 		/********** Velocity Commands **********/
 		tf::Vector3 vc, wc;//linear and angular velocity commands
@@ -666,9 +666,9 @@ class HomogDecomp
 		
 		/********** Decomp Declarations **********/
 		std::vector<cv::Mat> curr_points_m, ref_points_m;// vector for the matrix of current points
-		tf::Matrix3x3 A_tf = tf::Matrix3x3(567.79, 0, 337.35,
-										   0, 564.52, 169.54,
-										   0, 0, 1);// camera matrix// camera matrix
+		tf::Matrix3x3 A_tf = tf::Matrix3x3(396.17782, 0, 322.453185,
+										0, 399.798333, 174.243174,
+										0, 0, 1);// camera matrix// camera matrix
 		cv::Mat A;// the camera matrix as a cv
 		tf::Transform camera_wrt_reference;// transform of camera wrt reference
 		tf::Quaternion Q_cf = tf::Quaternion(0,0,0,0), Q_cf_last = tf::Quaternion(0,0,0,0), Q_cf_negated = tf::Quaternion(0,0,0,0);// camera wrt reference, last camera wrt reference, and negated camera wrt reference
@@ -711,7 +711,14 @@ class HomogDecomp
 			homog_decomp_pub = nh.advertise<homog_track::DecompMsg>("decomposed_homography",1);// publisher for the decomposed stuff
 			
 			/********** decomp parameters **********/
-			A = cv::Mat::zeros(3,3,CV_64F); A.at<double>(0,0) = 567.79; A.at<double>(0,2) = 337.35; A.at<double>(1,1) = 564.52; A.at<double>(1,2) = 169.54; A.at<double>(2,2) = 1; // camera matrix for the ardrone
+			A = cv::Mat::zeros(3,3,CV_64F); 
+			for (int ii = 0; ii < 3; ii++)
+			{
+				for (int jj = 0; jj < 3; jj++)
+				{
+					A.at<double>(ii,jj) = A_tf[ii][jj];
+				}
+			}
 			successful_decomp = 0;// initializing decomp to false
 			temp_scalar = cv::Mat::zeros(1,1,CV_64F);// initializer temp scalar to zero
 			pr_m = cv::Mat::ones(3,1,CV_64F);
@@ -1113,11 +1120,11 @@ class Controller
 		double alpha_red, alpha_green, alpha_cyan, alpha_purple;// alphas for the camera		
 		
 		/********* Cam info **********/
-		tf::Matrix3x3 A = tf::Matrix3x3(567.79, 0, 337.35,
-										0, 564.52, 169.54,
+		tf::Matrix3x3 A = tf::Matrix3x3(396.17782, 0, 322.453185,
+										0, 399.798333, 174.243174,
 										0, 0, 1);// camera matrix// camera matrix
-		tf::Matrix3x3 principle_point = tf::Matrix3x3(0,0,337.35, // u0
-													  0,0,169.54, // v0
+		tf::Matrix3x3 principle_point = tf::Matrix3x3(0,0,322.453185, // u0
+													  0,0,174.243174, // v0
 													  0,0,0);// matrix with the principle point coordinates of the camera								
 		/********** Velocity Commands **********/
 		tf::Vector3 vc, wc;//linear and angular velocity commands

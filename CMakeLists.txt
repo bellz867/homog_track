@@ -82,7 +82,7 @@ add_executable(nodetastic src/testing_stuff.cpp)
 target_link_libraries(nodetastic ${catkin_LIBRARIES} ${OpenCV_LIBS})
 add_dependencies(nodetastic ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 
-add_executable(experiment src/experiment_with_ref_set.cpp)
+add_executable(experiment src/experiment_with_ref_set_bebop.cpp)
 target_link_libraries(experiment ${catkin_LIBRARIES} ${OpenCV_LIBS})
 add_dependencies(experiment ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 
