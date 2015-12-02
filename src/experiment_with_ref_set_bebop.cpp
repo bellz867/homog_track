@@ -445,193 +445,6 @@ void filter_image_for_color(cv::Mat& hsv_src, cv::Mat& bin_src, int* thresh_src,
 
 }
 
-/********** Processes incoming images and outputs the pixels **********/
-class SimulatedImageProcessing
-{
-	public:
-		/********** node and topics **********/
-		ros::NodeHandle nh;// handle for the image processing
-		ros::Publisher pixel_pub;// pixel publisher
-		ros::Subscriber cam_vel_sub;// camera velocity subscriber
-		tf::TransformBroadcaster br;
-		tf::TransformListener listener;
-		
-		/********** Time Values **********/
-		ros::Time last_time;// last time the camera was updated
-		ros::Time current_time;// current time the camera was updated
-		ros::Time start_time;// start time
-		double loop_rate_hz;
-		bool camera_updated = false;
-		
-		/********** Points **********/
-		tf::Vector3 P_red_wrt_world, P_green_wrt_world, P_cyan_wrt_world, P_purple_wrt_world;// homography points wrt world
-		tf::Transform red_wrt_world, green_wrt_world, cyan_wrt_world, purple_wrt_world;//transforms for the marker points
-		
-		/********** Reference **********/
-		tf::Vector3 mr_bar_ref, mg_bar_ref, mc_bar_ref, mp_bar_ref;// points wrt reference
-		tf::Vector3 pr_ref, pg_ref, pc_ref, pp_ref;// pixels wrt reference
-		tf::Transform reference_wrt_world; // transform for reference camera
-		
-		/********** Camera **********/
-		tf::Vector3 mr_bar, mg_bar, mc_bar, mp_bar;// points wrt camera
-		tf::Vector3 mr, mg, mc, mp;// normalized points wrt camera
-		tf::Vector3 pr, pg, pc, pp;// points pixels wrt camera
-		geometry_msgs::Point pr_gm, pg_gm, pc_gm, pp_gm;// points pixels wrt camera for message
-		homog_track::ImageProcessingMsg pixels_out;
-		tf::Transform camera_wrt_world; // transform for camera
-		
-		/********** Camera wrt reference **********/
-		tf::Transform camera_wrt_reference;// transform of camera wrt reference
-		tf::Quaternion Q_cf = tf::Quaternion(0,0,0,0), Q_cf_last = tf::Quaternion(0,0,0,0), Q_cf_negated = tf::Quaternion(0,0,0,0);// camera wrt reference, last camera wrt reference, and negated camera wrt reference
-		double Q_norm_current_diff, Q_norm_negated_diff;// norms to determine which rotation is closer to last
-		
-		/********* Cam info **********/
-		tf::Matrix3x3 A = tf::Matrix3x3(396.17782, 0, 322.453185,
-										0, 399.798333, 174.243174,
-										0, 0, 1);// camera matrix// camera matrix
-										
-		/********** Velocity Commands **********/
-		tf::Vector3 vc, wc;//linear and angular velocity commands
-		cv::Mat wc_cv;
-		
-		SimulatedImageProcessing(double loop_rate_des)
-		{
-			loop_rate_hz = loop_rate_des;
-			/********** topics **********/
-			pixel_pub = nh.advertise<homog_track::ImageProcessingMsg>("feature_pixels", 1);
-			cam_vel_sub = nh.subscribe("/cmd_vel", 1, &SimulatedImageProcessing::update_camera_pixels, this);
-			
-			/********** markers wrt world **********/
-			P_red_wrt_world = tf::Vector3(-0.05,-0.05,0); P_green_wrt_world = tf::Vector3(-0.05,0.05,0); P_cyan_wrt_world = tf::Vector3(0.05,0.05,0); P_purple_wrt_world = tf::Vector3(0.05,-0.05,0);// homography points wrt world
-			red_wrt_world.setIdentity(); red_wrt_world.setOrigin(P_red_wrt_world);//red
-			green_wrt_world.setIdentity(); green_wrt_world.setOrigin(P_green_wrt_world);//green
-			cyan_wrt_world.setIdentity(); cyan_wrt_world.setOrigin(P_cyan_wrt_world);//cyan
-			purple_wrt_world.setIdentity(); purple_wrt_world.setOrigin(P_purple_wrt_world);//purple
-
-			/********** reference wrt world  **********/
-			double z_ref = 2; //reference height
-			reference_wrt_world.setOrigin(tf::Vector3(0,0,z_ref));//origin
-			tf::Matrix3x3 R_fw(1,0,0,
-							   0,-1,0,
-							   0,0,-1);// rotation of reference wrt world
-			tf::Quaternion Q_fw;// as a quaternion
-			R_fw.getRotation(Q_fw);// initialize quaternion
-			reference_wrt_world.setRotation(Q_fw);// set the rotation
-			
-			/********** markers wrt reference **********/
-			tf::Vector3 temp_v;
-			tf::Quaternion temp_Q;
-			temp_v = P_red_wrt_world-reference_wrt_world.getOrigin(); temp_Q = ((reference_wrt_world.getRotation().inverse())*tf::Quaternion(temp_v.getX(),temp_v.getY(),temp_v.getZ(),0.0))*reference_wrt_world.getRotation(); mr_bar_ref = tf::Vector3(temp_Q.getX(),temp_Q.getY(),temp_Q.getZ()); // red
-			temp_v = P_green_wrt_world-reference_wrt_world.getOrigin(); temp_Q = ((reference_wrt_world.getRotation().inverse())*tf::Quaternion(temp_v.getX(),temp_v.getY(),temp_v.getZ(),0.0))*reference_wrt_world.getRotation(); mg_bar_ref = tf::Vector3(temp_Q.getX(),temp_Q.getY(),temp_Q.getZ()); // green
-			temp_v = P_cyan_wrt_world-reference_wrt_world.getOrigin(); temp_Q = ((reference_wrt_world.getRotation().inverse())*tf::Quaternion(temp_v.getX(),temp_v.getY(),temp_v.getZ(),0.0))*reference_wrt_world.getRotation(); mc_bar_ref = tf::Vector3(temp_Q.getX(),temp_Q.getY(),temp_Q.getZ()); // cyan
-			temp_v = P_purple_wrt_world-reference_wrt_world.getOrigin(); temp_Q = ((reference_wrt_world.getRotation().inverse())*tf::Quaternion(temp_v.getX(),temp_v.getY(),temp_v.getZ(),0.0))*reference_wrt_world.getRotation(); mp_bar_ref = tf::Vector3(temp_Q.getX(),temp_Q.getY(),temp_Q.getZ()); // purple
-			pr_ref = A*((1/mr_bar_ref.getZ())*mr_bar_ref); pg_ref = A*((1/mg_bar_ref.getZ())*mg_bar_ref); pc_ref = A*((1/mc_bar_ref.getZ())*mc_bar_ref); pp_ref = A*((1/mp_bar_ref.getZ())*mp_bar_ref);// reference points as pixels
-			
-			/********** camera wrt world  **********/
-			double z_init = 3; //starting camera height
-			double cam_a0 = M_PIl/2;
-			camera_wrt_world.setOrigin(tf::Vector3(1,1,z_init));//origin
-			tf::Matrix3x3 R_cf(std::cos(cam_a0),-std::sin(cam_a0),0,
-								  std::sin(cam_a0),std::cos(cam_a0),0,
-								  0,0,1);// rotation of camera wrt reference
-			tf::Matrix3x3 R_cw = R_fw*R_cf;// rotation of camera wrt world
-			tf::Quaternion Q_cw;// as a quaternion
-			R_cw.getRotation(Q_cw);// initialize quaternion
-			camera_wrt_world.setRotation(Q_cw);// set the rotation
-			
-			/********** pixels wrt camera **********/
-			temp_v = P_red_wrt_world-camera_wrt_world.getOrigin(); temp_Q = ((camera_wrt_world.getRotation().inverse())*tf::Quaternion(temp_v.getX(),temp_v.getY(),temp_v.getZ(),0.0))*camera_wrt_world.getRotation(); mr_bar = tf::Vector3(temp_Q.getX(),temp_Q.getY(),temp_Q.getZ()); // red
-			temp_v = P_green_wrt_world-camera_wrt_world.getOrigin(); temp_Q = ((camera_wrt_world.getRotation().inverse())*tf::Quaternion(temp_v.getX(),temp_v.getY(),temp_v.getZ(),0.0))*camera_wrt_world.getRotation(); mg_bar = tf::Vector3(temp_Q.getX(),temp_Q.getY(),temp_Q.getZ()); // green
-			temp_v = P_cyan_wrt_world-camera_wrt_world.getOrigin(); temp_Q = ((camera_wrt_world.getRotation().inverse())*tf::Quaternion(temp_v.getX(),temp_v.getY(),temp_v.getZ(),0.0))*camera_wrt_world.getRotation(); mc_bar = tf::Vector3(temp_Q.getX(),temp_Q.getY(),temp_Q.getZ()); // cyan
-			temp_v = P_purple_wrt_world-camera_wrt_world.getOrigin(); temp_Q = ((camera_wrt_world.getRotation().inverse())*tf::Quaternion(temp_v.getX(),temp_v.getY(),temp_v.getZ(),0.0))*camera_wrt_world.getRotation(); mp_bar = tf::Vector3(temp_Q.getX(),temp_Q.getY(),temp_Q.getZ()); // purple
-			pr = A*((1/mr_bar.getZ())*mr_bar); pg = A*((1/mg_bar.getZ())*mg_bar); pc = A*((1/mc_bar.getZ())*mc_bar); pp = A*((1/mp_bar.getZ())*mp_bar);// camera points as pixels
-			pr_gm.x = pr.getX(); pr_gm.y = pr.getY(); pr_gm.z = pr.getZ();// red
-			pg_gm.x = pg.getX(); pg_gm.y = pg.getY(); pg_gm.z = pg.getZ();// grenn
-			pc_gm.x = pc.getX(); pc_gm.y = pc.getY(); pc_gm.z = pc.getZ();// cyan
-			pp_gm.x = pp.getX(); pp_gm.y = pp.getY(); pp_gm.z = pp.getZ();// purple
-			
-			//std::cout << "image processing camera before" << std::endl;
-			//std::cout << pixels_out << std::endl;
-			
-			pixels_out.pr = pr_gm; pixels_out.pg = pg_gm; pixels_out.pc = pc_gm; pixels_out.pp = pp_gm;// out message pixels
-			
-			//std::cout << "image processing camera after" << std::endl;
-			//std::cout << pixels_out << std::endl;
-			
-			last_time = ros::Time::now();
-			pixels_out.header.stamp = last_time;// out message current time
-			start_time = last_time;;
-			camera_updated = true;
-			br.sendTransform(tf::StampedTransform(camera_wrt_world, last_time
-								  ,"world","current_image"));
-		}
-		
-		/********** velocity callback **********/
-		void update_camera_pixels(const geometry_msgs::Twist& msg)
-		{
-			current_time = ros::Time::now();//update time
-			vc.setX(msg.linear.x); vc.setY(msg.linear.y); vc.setZ(msg.linear.z);//linear velocity
-			wc.setZ(msg.angular.z);// angular velocity
-			
-			//std::cout << "vc:\n x: " << vc.getX() << " y: " << vc.getY() << " z: " << vc.getZ() << std::endl;
-			//std::cout << "wc:\n x: " << wc.getX() << " y: " << wc.getY() << " z: " << wc.getZ() << std::endl;
-			
-			double time_diff = current_time.toSec() - last_time.toSec();// get the time difference
-			wc_cv = cv::Mat::zeros(3,1,CV_64F); wc_cv.at<double>(2,0) = wc.getZ();// angular velocity of camera wrt reference expressed in camera
-			tf::Quaternion Q_cw = camera_wrt_world.getRotation();// rotation of camera wrt world
-			cv::Mat Q_cw_old = cv::Mat::zeros(4,1,CV_64F);
-			Q_cw_old.at<double>(0,0) = Q_cw.getW(); Q_cw_old.at<double>(1,0) = Q_cw.getX(); Q_cw_old.at<double>(2,0) = Q_cw.getY(); Q_cw_old.at<double>(3,0) = Q_cw.getZ();
-			cv::Mat B = cv::Mat::zeros(4,3,CV_64F);// differential matrix
-			B.at<double>(0,0) = -Q_cw.getX(); B.at<double>(0,1) = -Q_cw.getY(); B.at<double>(0,2) = -Q_cw.getZ();
-			B.at<double>(1,0) = Q_cw.getW(); B.at<double>(1,1) = -Q_cw.getZ(); B.at<double>(1,2) = Q_cw.getY();
-			B.at<double>(2,0) = Q_cw.getZ(); B.at<double>(2,1) = Q_cw.getW(); B.at<double>(2,2) = -Q_cw.getX();
-			B.at<double>(3,0) = -Q_cw.getY(); B.at<double>(3,1) = Q_cw.getX(); B.at<double>(3,2) = Q_cw.getW();
-			cv::Mat Q_cw_dot = 0.5*(B*wc_cv);// rate of change of rotation of camera wrt world
-			cv::Mat Q_cw_new = cv::Mat::zeros(4,1,CV_64F);
-			Q_cw_new = Q_cw_old + Q_cw_dot*time_diff;//update the quaternion
-			double Q_cw_new_norm = std::sqrt(std::pow(Q_cw_new.at<double>(0,0),2)+
-											 std::pow(Q_cw_new.at<double>(1,0),2)+
-											 std::pow(Q_cw_new.at<double>(2,0),2)+
-											 std::pow(Q_cw_new.at<double>(3,0),2));
-			Q_cw_new = (1.0/Q_cw_new_norm)*Q_cw_new;//normalize
-			Q_cw = tf::Quaternion(Q_cw_new.at<double>(1,0),Q_cw_new.at<double>(2,0),Q_cw_new.at<double>(3,0),Q_cw_new.at<double>(0,0));//updating
-			camera_wrt_world.setRotation(Q_cw);//updating the transform
-			tf::Quaternion Q_P_cw_dot = (Q_cw*tf::Quaternion(vc.getX(),vc.getY(),vc.getZ(),0.0))*Q_cw.inverse();//express vc in world frame
-			tf::Vector3 P_cw_dot = tf::Vector3(Q_P_cw_dot.getX(),Q_P_cw_dot.getY(),Q_P_cw_dot.getZ());
-			tf::Vector3 P_cw = camera_wrt_world.getOrigin();//origin of camera wrt world
-			tf::Vector3 P_cw_new = P_cw + P_cw_dot*time_diff;//update origin
-			camera_wrt_world.setOrigin(P_cw_new);//updating the transform
-			
-			/********** update pixels wrt camera  **********/
-			tf::Vector3 temp_v;
-			tf::Quaternion temp_Q;
-			temp_v = P_red_wrt_world-camera_wrt_world.getOrigin(); temp_Q = ((camera_wrt_world.getRotation().inverse())*tf::Quaternion(temp_v.getX(),temp_v.getY(),temp_v.getZ(),0.0))*camera_wrt_world.getRotation(); mr_bar = tf::Vector3(temp_Q.getX(),temp_Q.getY(),temp_Q.getZ()); // red
-			temp_v = P_green_wrt_world-camera_wrt_world.getOrigin(); temp_Q = ((camera_wrt_world.getRotation().inverse())*tf::Quaternion(temp_v.getX(),temp_v.getY(),temp_v.getZ(),0.0))*camera_wrt_world.getRotation(); mg_bar = tf::Vector3(temp_Q.getX(),temp_Q.getY(),temp_Q.getZ()); // green
-			temp_v = P_cyan_wrt_world-camera_wrt_world.getOrigin(); temp_Q = ((camera_wrt_world.getRotation().inverse())*tf::Quaternion(temp_v.getX(),temp_v.getY(),temp_v.getZ(),0.0))*camera_wrt_world.getRotation(); mc_bar = tf::Vector3(temp_Q.getX(),temp_Q.getY(),temp_Q.getZ()); // cyan
-			temp_v = P_purple_wrt_world-camera_wrt_world.getOrigin(); temp_Q = ((camera_wrt_world.getRotation().inverse())*tf::Quaternion(temp_v.getX(),temp_v.getY(),temp_v.getZ(),0.0))*camera_wrt_world.getRotation(); mp_bar = tf::Vector3(temp_Q.getX(),temp_Q.getY(),temp_Q.getZ()); // purple
-			pr = A*((1/mr_bar.getZ())*mr_bar); pg = A*((1/mg_bar.getZ())*mg_bar); pc = A*((1/mc_bar.getZ())*mc_bar); pp = A*((1/mp_bar.getZ())*mp_bar);// camera points as pixels
-			pr_gm.x = pr.getX(); pr_gm.y = pr.getY(); pr_gm.z = pr.getZ();// red
-			pg_gm.x = pg.getX(); pg_gm.y = pg.getY(); pg_gm.z = pg.getZ();// grenn
-			pc_gm.x = pc.getX(); pc_gm.y = pc.getY(); pc_gm.z = pc.getZ();// cyan
-			pp_gm.x = pp.getX(); pp_gm.y = pp.getY(); pp_gm.z = pp.getZ();// purple
-			
-			//std::cout << "image processing camera before" << std::endl;
-			//std::cout << pixels_out << std::endl;
-			
-			pixels_out.pr = pr_gm; pixels_out.pg = pg_gm; pixels_out.pc = pc_gm; pixels_out.pp = pp_gm;// out message pixels
-			
-			//std::cout << "image processing camera after" << std::endl;
-			//std::cout << pixels_out << std::endl;
-			
-			last_time = current_time;
-			pixels_out.header.stamp = current_time;// out message current time
-			camera_updated = true;
-			br.sendTransform(tf::StampedTransform(camera_wrt_world, current_time
-								  ,"world","current_image"));
-			std::cout << "pixels updated" << std::endl;
-		}
-};
-
 /********** Homography Decomposition **********/
 class HomogDecomp
 {
@@ -1217,8 +1030,8 @@ class Controller
 			joy_sub = nh.subscribe("joy",1,&Controller::joy_callback,this);
 			
 			/********** Set transform for camera wrt frame **********/
-			camera_wrt_body.setOrigin(tf::Vector3(0.147307457005166, 0.006462951419338, -0.037134150975938));//origin
-			camera_wrt_body.setRotation(tf::Quaternion(-0.686755898248694, 0.670811209506236, -0.165804584561225, 0.225439733875439));
+			camera_wrt_body.setOrigin(tf::Vector3(0.013662114819328, -0.002964485594444, -0.031471346895163));//origin
+			camera_wrt_body.setRotation(tf::Quaternion(-0.485023210117676,  0.49871222730066,  -0.506152073414795,  0.509708431608203));
 			
 			/********** Set transform for body wrt world from mocap and calculated **********/
 			body_wrt_world_mocap.setOrigin(tf::Vector3(0,0,0));
@@ -2158,7 +1971,7 @@ int main(int argc, char** argv)
 	double loop_rate_hz = 30;
 	bool write_to_file = true;
 	
-	std::string filename = "/home/ncr/ncr_ws/src/homog_track/testing_files/experiment_6.txt";
+	std::string filename = "/home/ncr/ncr_ws/src/homog_track/testing_files/experiment_7.txt";
 	if( (std::remove( filename.c_str() ) != 0) && write_to_file)
 	{
 		std::cout << "file does not exist" << std::endl;
@@ -2170,7 +1983,6 @@ int main(int argc, char** argv)
 	std::cout << "hi" << std::endl;
 	
 	ImageProcessing image_processing;// image processing
-	//SimulatedImageProcessing simulated_image_processing(loop_rate_hz);// simulated image processing 
 	HomogDecomp homog_decomp;// homography decomp
 	Controller controller(loop_rate_hz, write_to_file, filename);// controller
 	
