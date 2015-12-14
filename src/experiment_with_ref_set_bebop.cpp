@@ -869,7 +869,7 @@ class Controller
 		ros::NodeHandle nh;
 		tf::TransformBroadcaster br;
 		tf::TransformListener listener;
-		ros::Subscriber decomp_sub, joy_sub, body_imu_sub, body_mocap_sub;
+		ros::Subscriber decomp_sub, joy_sub, body_imu_sub, body_mocap_sub, camera_state_sub;
 		ros::Publisher takeoff_pub, land_pub, reset_pub, cmd_vel_pub, desired_pose_pub, current_pose_pub, desired_pixels_pub, current_error_pub;
 		
 		/********** Time Values **********/
@@ -904,10 +904,14 @@ class Controller
 		tf::Transform red_wrt_world_calc, green_wrt_world_calc, cyan_wrt_world_calc, purple_wrt_world_calc;//transforms for the marker points calcs
 		
 		/********** UAV body **********/
-		tf::Transform camera_wrt_body;//transform of the camera wrt the body
+		tf::Transform camera_init_wrt_body;//transform of the camera init wrt the body
+		tf::Transform camera_wrt_body_init;// camera wrt body init
+		tf::Transform camera_wrt_camera_init;//transform of the current
+		tf::Transform camera_wrt_body;
 		tf::Vector3 w_body = tf::Vector3(0,0,0);// angular velocity of the body wrt world expressed in the body, from imu
 		tf::Transform body_wrt_world_mocap;//pose of body from the mocap
 		tf::Transform body_wrt_world_calc;//pose of body from calculations
+		double gimbal_angle = -40*2*M_PIl/180.0;
 		
 		/********** Reference **********/
 		tf::Vector3 mr_bar_ref, mg_bar_ref, mc_bar_ref, mp_bar_ref;// points wrt reference
@@ -1017,27 +1021,34 @@ class Controller
 			loop_rate_hz = loop_rate_des;
 			number_of_integrating_samples = loop_rate_hz*0.2;
 			decomp_sub = nh.subscribe("decomposed_homography",1, &Controller::decomp_callback, this);// subscribing to the decomp message
-			body_imu_sub = nh.subscribe("/ardrone/imu", 1, &Controller::body_imu_callback, this);// subscribing to the imu
-			body_mocap_sub = nh.subscribe("/ardrone/pose", 1, &Controller::body_pose_callback, this);// subscribing to the p
+			body_imu_sub = nh.subscribe("/bebop/body_vel", 1, &Controller::body_imu_callback, this);// subscribing to the imu
+			body_mocap_sub = nh.subscribe("/bebop/pose", 1, &Controller::body_pose_callback, this);// subscribing to the p
 			cmd_vel_pub = nh.advertise<geometry_msgs::Twist>("cmd_vel_from_control",1);// publisher for the decomposed stuff
 			desired_pose_pub = nh.advertise<geometry_msgs::Pose>("desired_pose",1);//desire pose message
 			desired_pixels_pub = nh.advertise<homog_track::ImageProcessingMsg>("desired_pixels",1);//desire pixels message
 			current_pose_pub = nh.advertise<geometry_msgs::Pose>("current_pose",1);//current pose message
 			current_error_pub = nh.advertise<geometry_msgs::Pose>("ev_and_qtilde",1);//current error
-			takeoff_pub = nh.advertise<std_msgs::Empty>("ardrone/takeoff",1);
-			land_pub = nh.advertise<std_msgs::Empty>("ardrone/land",1);
-			reset_pub = nh.advertise<std_msgs::Empty>("ardrone/reset",1);
+			takeoff_pub = nh.advertise<std_msgs::Empty>("bebop/takeoff",1);
+			land_pub = nh.advertise<std_msgs::Empty>("bebop/land",1);
+			reset_pub = nh.advertise<std_msgs::Empty>("bebop/reset",1);
 			joy_sub = nh.subscribe("joy",1,&Controller::joy_callback,this);
-			
-			/********** Set transform for camera wrt frame **********/
-			camera_wrt_body.setOrigin(tf::Vector3(0.013662114819328, -0.002964485594444, -0.031471346895163));//origin
-			camera_wrt_body.setRotation(tf::Quaternion(-0.485023210117676,  0.49871222730066,  -0.506152073414795,  0.509708431608203));
+			//camera_state_sub = nh.subscribe("/bebop/camera_control",1,&Controller::camera_state_callback,this);//get the current gimbal desired center
 			
 			/********** Set transform for body wrt world from mocap and calculated **********/
 			body_wrt_world_mocap.setOrigin(tf::Vector3(0,0,0));
 			body_wrt_world_mocap.setRotation(tf::Quaternion(0,0,0,1));
 			body_wrt_world_calc.setOrigin(tf::Vector3(0,0,0));
 			body_wrt_world_calc.setRotation(tf::Quaternion(0,0,0,1));
+			
+			/********** Camera with respect to body initial **********/
+			camera_init_wrt_body.setOrigin(tf::Vector3(0.053144708904881, -0.007325857858683, -0.063096991249463));
+			camera_init_wrt_body.setRotation(tf::Quaternion(-0.509759529319467,  0.498136685988136, -0.496486743347509,  0.495424003823942));
+			camera_wrt_camera_init.setOrigin(tf::Vector3(0,0,0));
+			tf::Matrix3x3 camera_wrt_camera_init_rot_temp = tf::Matrix3x3(0,0,0,0,std::cos(gimbal_angle),std::sin(gimbal_angle),0,-1*std::sin(gimbal_angle),std::cos(gimbal_angle));
+			tf::Quaternion camera_wrt_camera_init_Q_temp;
+			camera_wrt_camera_init_rot_temp.getRotation(camera_wrt_camera_init_Q_temp);
+			camera_wrt_camera_init.setRotation(camera_wrt_camera_init_Q_temp);
+			camera_wrt_body_init = camera_init_wrt_body*camera_wrt_camera_init;
 			
 			/******************** Writing headers to file ********************/
 			if (write_to_file)
@@ -1127,15 +1138,15 @@ class Controller
 			tf::Quaternion Q_desired_body_wrt_world; R_desired_body_wrt_world.getRotation(Q_desired_body_wrt_world);// get rotation as a quaternion
 			desired_body_wrt_world.setRotation(Q_desired_body_wrt_world);// set the initial body transform rotation
 			desired_wrt_world.setOrigin(desired_body_wrt_world.getOrigin());// desired camera has same origin as the body, no actual length for the virtual body
-			desired_wrt_world.setRotation(desired_body_wrt_world.getRotation()*camera_wrt_body.getRotation());;// set the initial rotation of the camera, its the body_wrt_world*camera_wrt_body
+			desired_wrt_world.setRotation(desired_body_wrt_world.getRotation()*camera_wrt_body_init.getRotation());;// set the initial rotation of the camera, its the body_wrt_world*camera_wrt_body_init
 			tf::Vector3 wd_body_temp = tf::Vector3(0,0,2*M_PIl/desired_period);// desired angular velocity of the body
 			tf::Vector3 vd_body_temp = tf::Vector3(0,-1*wd_body_temp.getZ()*desired_radius,0);// desired linear velocity of the body
 			
 			// desired camera linear velocity is vcd =  q_cam_wrt_body.inverse()*vd body_temp*q_cam_wrt_body
-			tf::Quaternion vcd_body_temp = ((camera_wrt_body.getRotation().inverse())*tf::Quaternion(vd_body_temp.getX(), vd_body_temp.getY(), vd_body_temp.getZ(), 0)) * camera_wrt_body.getRotation();
+			tf::Quaternion vcd_body_temp = ((camera_wrt_body_init.getRotation().inverse())*tf::Quaternion(vd_body_temp.getX(), vd_body_temp.getY(), vd_body_temp.getZ(), 0)) * camera_wrt_body_init.getRotation();
 			vcd = tf::Vector3(vcd_body_temp.getX(), vcd_body_temp.getY(), vcd_body_temp.getZ());
 			// desired angular velocity of the camera is wcd = q_cam_wrt_body.inverse() * wd_body_temp * q_cam_wrt_body
-			tf::Quaternion wcd_temp = ((camera_wrt_body.getRotation().inverse()) * tf::Quaternion(wd_body_temp.getX(), wd_body_temp.getY(), wd_body_temp.getZ(), 0)) * camera_wrt_body.getRotation();
+			tf::Quaternion wcd_temp = ((camera_wrt_body_init.getRotation().inverse()) * tf::Quaternion(wd_body_temp.getX(), wd_body_temp.getY(), wd_body_temp.getZ(), 0)) * camera_wrt_body_init.getRotation();
 			wcd.setValue(wcd_temp.getX(), wcd_temp.getY(), wcd_temp.getZ());
 			wcd_cv = cv::Mat::zeros(3,1,CV_64F);
 			wcd_cv.at<double>(0,0) = wcd.getX(); wcd_cv.at<double>(1,0) = wcd.getY(); wcd_cv.at<double>(2,0) = wcd.getZ();
@@ -1191,9 +1202,9 @@ class Controller
 		}
 		
 		/********** callback for the uav body imu **********/
-		void body_imu_callback(const sensor_msgs::Imu& msg)
+		void body_imu_callback(const geometry_msgs::TwistStamped& msg)
 		{
-			w_body = tf::Vector3(msg.angular_velocity.x, msg.angular_velocity.y, msg.angular_velocity.z);
+			w_body = tf::Vector3(msg.twist.angular.x, msg.twist.angular.y, msg.twist.angular.z);
 		}
 		
 		/********** callback for the decomp node **********/
@@ -1204,7 +1215,6 @@ class Controller
 			bool rotation_found = false;
 			//std::cout << "entered decomp callback" << std::endl;
 			current_time = msg.header.stamp;
-			
 			
 			// because the reference is set to the exact value when when n should have only a z componenet, the correct
 			// choice should be the one closest to n_ref = [0,0,1]^T which will be the one with the greatest dot product with n_ref
@@ -1268,6 +1278,7 @@ class Controller
 					//pc_ref.setX() = msg.ref_cam_pixels.pc.x; pc_ref.setY() = msg.ref_cam_pixels.pc.y; pc_ref.setZ() = 1;//cyan pixels
 					//pp_ref.setX() = msg.ref_cam_pixels.pp.x; pp_ref.setY() = msg.ref_cam_pixels.pp.y; pp_ref.setZ() = 1;//purple pixels
 				}
+				
 				try
 				{
 					(R_fc_temp.transpose()).getRotation(Q_cf);// take transpose to get camera wrt reference
@@ -1288,7 +1299,13 @@ class Controller
 					Q_cf_last = Q_cf;// updating the last
 					camera_wrt_reference.setRotation(Q_cf);
 					
-					br.sendTransform(tf::StampedTransform(camera_wrt_body, current_time, "ardrone", "camera_image"));
+					//std::cout << "entered rotation found" << std::endl;
+					tf::StampedTransform camera_wrt_body_temp;
+					listener.waitForTransform("bebop", "bebop_image", current_time, ros::Duration(1.0));
+					listener.lookupTransform("bebop", "bebop_image", current_time, camera_wrt_body_temp);
+					camera_wrt_body.setOrigin(camera_wrt_body_temp.getOrigin());
+					
+					br.sendTransform(tf::StampedTransform(camera_wrt_body, current_time, "bebop", "camera_image"));
 					br.sendTransform(tf::StampedTransform(reference_wrt_world,current_time,"world","reference_image"));
 					
 					//camera_wrt_reference.setOrigin(-1*((R_fc_temp.transpose())*t_fc_temp));
@@ -1296,8 +1313,6 @@ class Controller
 					listener.waitForTransform("reference_image", "camera_image", current_time, ros::Duration(1.0));
 					listener.lookupTransform("reference_image", "camera_image", current_time, camera_wrt_reference_calc_temp);
 					camera_wrt_reference.setOrigin(camera_wrt_reference_calc_temp.getOrigin());
-					
-					//std::cout << "entered rotation found" << std::endl;
 					
 					br.sendTransform(tf::StampedTransform(camera_wrt_reference, current_time, "reference_image", "camera_image_calc"));
 					br.sendTransform(tf::StampedTransform(camera_wrt_body.inverse(), current_time, "camera_image_calc", "body"));
@@ -1386,7 +1401,7 @@ class Controller
 			{
 				// setting the reference
 				ros::Time time_temp = ros::Time::now();
-				br.sendTransform(tf::StampedTransform(camera_wrt_body, last_body_pose_time, "ardrone", "camera_image"));
+				br.sendTransform(tf::StampedTransform(camera_wrt_body, last_body_pose_time, "bebop", "camera_image"));
 				tf::StampedTransform reference_wrt_world_temp;
 				listener.waitForTransform("world", "camera_image", last_body_pose_time, ros::Duration(1.0));
 				listener.lookupTransform("world", "camera_image", last_body_pose_time, reference_wrt_world_temp);

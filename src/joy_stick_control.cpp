@@ -28,29 +28,45 @@ class Joycall
 	public:
 	
 		ros::NodeHandle nh;
-		ros::Subscriber joy_sub, cmd_vel_sub;
-		ros::Publisher takeoff_pub, land_pub, reset_pub, cmd_vel_pub;
+		ros::Subscriber joy_sub, cmd_vel_sub, camera_state_sub;
+		ros::Publisher takeoff_pub, land_pub, reset_pub, cmd_vel_pub, camera_state_pub;
 		
 		/********** output command choice and xbox controller **********/
 		geometry_msgs::Twist command_from_xbox;
 		geometry_msgs::Twist velocity_command;
+		geometry_msgs::Twist gimbal_state_current;
+		geometry_msgs::Twist gimbal_state_desired;
 		int a_button_land_b0 = 0, x_button_set_0_b2 = 0, b_button_reset_b1 = 0, y_button_takeoff_b3 = 0, lb_button_teleop_b4 = 0, rb_button_teleop_b5 = 0;
-		double rt_stick_ud_x_a3 = 0, rt_stick_lr_y_a2 = 0, lt_stick_ud_z_a1 = 0, lt_stick_lr_th_a0 = 0;
+		double rt_stick_ud_x_a3 = 0, rt_stick_lr_y_a2 = 0, lt_stick_ud_z_a1 = 0, lt_stick_lr_th_a0 = 0, r_trigger_a4 = 0, dpad_ud_a7 = 0;
 		bool start_autonomous = false;
 		bool send_0 = false;
 		bool recieved_command = false;
 		bool recieved_control = false;
-		
+		bool first_run = true;
 		
 		Joycall()
 		{
 			cmd_vel_sub = nh.subscribe("cmd_vel_from_control",1,&Joycall::cmd_vel_callback,this);
-			cmd_vel_pub = nh.advertise<geometry_msgs::Twist>("cmd_vel",1);// publisher for the decomposed stuff
-			takeoff_pub = nh.advertise<std_msgs::Empty>("ardrone/takeoff",1);
-			land_pub = nh.advertise<std_msgs::Empty>("ardrone/land",1);
-			reset_pub = nh.advertise<std_msgs::Empty>("ardrone/reset",1);
+			cmd_vel_pub = nh.advertise<geometry_msgs::Twist>("/bebop/cmd_vel",1);// publisher for the decomposed stuff
+			takeoff_pub = nh.advertise<std_msgs::Empty>("bebop/takeoff",1);
+			land_pub = nh.advertise<std_msgs::Empty>("bebop/land",1);
+			reset_pub = nh.advertise<std_msgs::Empty>("bebop/reset",1);
+			camera_state_sub = nh.subscribe("/bebop/camera_control",1,&Joycall::camera_state_callback,this);//get the current gimbal desired center
+			camera_state_pub = nh.advertise<geometry_msgs::Twist>("/bebop/camera_control",1);// set the gimbal desired center
 			joy_sub = nh.subscribe("joy",1,&Joycall::joy_callback,this);
 			cmd_vel_pub.publish(geometry_msgs::Twist());// initially sending it a desired command of 0
+			
+			// testing showed that -55 is a pretty good starting angle
+			gimbal_state_current.angular.y = -40;
+		}
+		
+		/********** callback for the camera desired gimbal center **********/
+		void camera_state_callback(const geometry_msgs::Twist& msg)
+		{
+			//angular y is tilt: + is down - is up
+			//angular z is pan:+ is left - is right
+			gimbal_state_current = msg;
+			std::cout << "gimbal state: " << msg.angular.y << std::endl;
 		}
 		
 		/********** callback for the cmd velocity from the autonomy **********/
@@ -91,9 +107,32 @@ class Joycall
 				takeoff_pub.publish(std_msgs::Empty());
 			}
 				
+			r_trigger_a4 = msg.axes[4];//right trigger pulled for fine tilt control of gimbal
+			dpad_ud_a7 = msg.axes[7];//dpad up down value, up, 1, for tilt camera down, and down, -1 for tilt camera up
+			// if the dpad is close to 1, means want to tilt camera down so add to current camera value
+			// if the dpad is close to -1, means want to tilt camera up so add to current camera value
+			// if the right trigger is less than 0, means want to finely adjust tilt
+			if (std::abs(dpad_ud_a7) > 0.5)
+			{
+				if (r_trigger_a4 < 0)
+				{
+					gimbal_state_desired.angular.y = gimbal_state_current.angular.y + 1*dpad_ud_a7;
+				}
+				else
+				{
+					gimbal_state_desired.angular.y = gimbal_state_current.angular.y + 10*dpad_ud_a7;
+				}
+				camera_state_pub.publish(gimbal_state_desired);
+			}
+			if (first_run)
+			{
+				camera_state_pub.publish(gimbal_state_current);
+				first_run = false;
+				std::cout << "gimbal value: " << gimbal_state_current.angular.y << std::endl;
+			}
+			
 			lb_button_teleop_b4 = msg.buttons[4];// left bumper for autonomous mode
 			rb_button_teleop_b5 = msg.buttons[5];// right bumper says to start controller
-
 			
 			// if the bumper is pulled and it is not in autonomous mode will put it in autonomous mode
 			// if the bumper is pulled and it is in autonomous mode will take it out of autonomous mode
@@ -148,10 +187,8 @@ int main(int argc, char** argv)
 
 	Joycall joycall;
 	ros::Rate loop_rate(300);
-	
 	while (ros::ok())
 	{
-		
 		if (joycall.recieved_command || joycall.recieved_control)
 		{
 			if (joycall.recieved_control)
