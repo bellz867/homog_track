@@ -146,10 +146,10 @@ class ImageProcessing
 		
 		/********** threshold declarations and initializations **********/
 		// order is {lower hue, upper hue, lower saturation, upper saturation, lower value, upper value}
-		int r_thresh[6] = {165, 5, 60, 255, 85, 255};// values for the red color threshold values: hue, staturation, and value
-		int g_thresh[6] = {65, 90, 45, 255, 40, 255};// values for the green color threshold values: hue, staturation, and value
-		int c_thresh[6] = {95, 105, 125, 255, 80, 255};// values for the cyan color threshold values: hue, staturation, and value
-		int p_thresh[6] = {110, 135, 45, 255, 50, 255};// values for the violet color threshold values: hue, staturation, and value
+		int r_thresh[6] = {155, 1, 25, 255, 80, 255};// values for the red color threshold values: hue, staturation, and value
+		int g_thresh[6] = {65, 90, 40, 255, 40, 255};// values for the green color threshold values: hue, staturation, and value
+		int c_thresh[6] = {95, 105, 60, 255, 80, 255};// values for the cyan color threshold values: hue, staturation, and value
+		int p_thresh[6] = {110, 135, 30, 255, 50, 255};// values for the violet color threshold values: hue, staturation, and value
 		std::vector<int*> thresh_current{ r_thresh, g_thresh, c_thresh, p_thresh };// putting the start arrays into a vector
 		int thresh_max[6] = {180, 180, 255, 255, 255, 255};// max values for the primary colorthreshold value: hue, saturation, and value
 		
@@ -192,8 +192,10 @@ class ImageProcessing
 			image_sub_ = it_.subscribe( "/ardrone/front/image_raw", 1, &ImageProcessing::image_callback, this);// subscribe to ardrone front camera
 			image_pub_ = it_.advertise("processed_image", 1);// publish processed image
 			pixel_pub = nh.advertise<homog_track::ImageProcessingMsg>("feature_pixels", 1);//pixel publisher
-			A = cv::Mat::zeros(3,3,CV_64F); A.at<double>(0,0) = 567.79; A.at<double>(0,2) = 337.35; A.at<double>(1,1) = 564.52; A.at<double>(1,2) = 169.54; A.at<double>(2,2) = 1; // camera matrix for the ardrone
-			dC.push_back(-0.5122398601387984); dC.push_back(0.2625218940944695); dC.push_back(-0.0009892579344331395); dC.push_back(0.002480111502028633); dC.push_back(0.0); // distortion matrix for the ardrone
+			//A = cv::Mat::zeros(3,3,CV_64F); A.at<double>(0,0) = 567.79; A.at<double>(0,2) = 337.35; A.at<double>(1,1) = 564.52; A.at<double>(1,2) = 169.54; A.at<double>(2,2) = 1; // camera matrix for the ardrone
+			//dC.push_back(-0.5122398601387984); dC.push_back(0.2625218940944695); dC.push_back(-0.0009892579344331395); dC.push_back(0.002480111502028633); dC.push_back(0.0); // distortion matrix for the ardrone
+			A = cv::Mat::zeros(3,3,CV_64F); A.at<double>(0,0) = 396.17782; A.at<double>(0,2) = 322.453185; A.at<double>(1,1) = 399.798333; A.at<double>(1,2) = 174.243174; A.at<double>(2,2) = 1; // camera matrix for the ardrone
+			dC.push_back(-0.001983); dC.push_back(0.015844); dC.push_back(-0.003171); dC.push_back(0.001506); dC.push_back(0.0); // distortion matrix for the ardrone
 		}
 
 		/********* Callback for the image processing *********/
@@ -511,9 +513,9 @@ int main(int argc, char** argv)
 {   
 	ros::init(argc,argv,"threshold_testing_node");
 
-	double loop_rate_hz = 30;
-	std::string video_file = "/home/ncr/experiment_3.avi";
-	ImageGenerator image_generator(video_file);	
+	double loop_rate_hz = 15;
+	std::string video_file = "/home/ncr/bebop_neg_45_deg.avi";
+	ImageGenerator image_generator(video_file);
 	ImageProcessing image_processing;// image processing
 	
 	ros::Rate loop_rate(loop_rate_hz);
@@ -524,6 +526,5 @@ int main(int argc, char** argv)
 		ros::spinOnce();
 		loop_rate.sleep();
 	}
-
     return 0;
 }
