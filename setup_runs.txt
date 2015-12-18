@@ -1,0 +1,10 @@
+roscore
+rosrun rviz rviz
+sudo xboxdrv --detach-kernel-driver
+rosparam set /joy_node/dev "/dev/input/js1" and rosrun joy joy_node
+roslaunch mocap_optitrack mocap.launch
+roslaunch bebop_driver bebop_node.launch
+roslaunch bebop_gimbal_tf bebop_gimbal_tf.launch
+rosrun homog_track joy_stick_control_node
+rosrun switch_vis_exp filter_node __ns:=/bebop
+rosrun homog_track experiment
