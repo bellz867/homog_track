@@ -886,11 +886,11 @@ class Controller
 		std::string output_file_name; // file name
 		
 		/********** Gains **********/
-		double Kws = 0.2;// K_w scalar
+		double Kws = 0.1;// K_w scalar
 		tf::Matrix3x3 Kw = tf::Matrix3x3(Kws,0,0,
 										 0,Kws,0,
 										 0,0,Kws);// rotational gain matrix initialize to identity
-		double Kvs = 0.5;
+		double Kvs = 0.2;
 		tf::Matrix3x3 Kv = tf::Matrix3x3(Kvs,0,0,
 										 0,Kvs,0,
 										 0,0,Kvs);// linear velocity gain matrix
@@ -1164,7 +1164,7 @@ class Controller
 			temp_v = P_cyan_wrt_world-desired_wrt_world.getOrigin(); temp_Q = ((desired_wrt_world.getRotation().inverse())*tf::Quaternion(temp_v.getX(),temp_v.getY(),temp_v.getZ(),0.0))*desired_wrt_world.getRotation(); mcd_bar = tf::Vector3(temp_Q.getX(),temp_Q.getY(),temp_Q.getZ()); // cyan
 			temp_v = P_purple_wrt_world-desired_wrt_world.getOrigin(); temp_Q = ((desired_wrt_world.getRotation().inverse())*tf::Quaternion(temp_v.getX(),temp_v.getY(),temp_v.getZ(),0.0))*desired_wrt_world.getRotation(); mpd_bar = tf::Vector3(temp_Q.getX(),temp_Q.getY(),temp_Q.getZ()); // purple
 			prd = A*((1/mrd_bar.getZ())*mrd_bar); pgd = A*((1/mgd_bar.getZ())*mgd_bar); pcd = A*((1/mcd_bar.getZ())*mcd_bar); ppd = A*((1/mpd_bar.getZ())*mpd_bar);// camera points as pixels
-			alpha_red_d = mr_bar_ref.getZ()/mrd_bar.getZ();
+			//alpha_red_d = red_wrt_reference.getOrigin().getZ()/mrd_bar.getZ();
 			desired_pixels.pr.x = prd.getX(); desired_pixels.pr.x = prd.getY(); desired_pixels.pr.x = prd.getZ();//red
 			desired_pixels.pg.x = pgd.getX(); desired_pixels.pg.x = pgd.getY(); desired_pixels.pg.x = pgd.getZ();//green
 			desired_pixels.pc.x = pcd.getX(); desired_pixels.pc.x = pcd.getY(); desired_pixels.pc.x = pcd.getZ();//cyan
@@ -1422,14 +1422,22 @@ class Controller
 					listener.waitForTransform("world", "camera_image", last_body_pose_time, ros::Duration(1.0));
 					listener.lookupTransform("world", "camera_image", last_body_pose_time, reference_wrt_world_temp);
 					reference_wrt_world = reference_wrt_world_temp;
-					br.sendTransform(tf::StampedTransform(red_wrt_world, last_body_pose_time, "world", "red"));
-					tf::StampedTransform red_wrt_reference_temp;
-					listener.waitForTransform("world","red",last_body_pose_time,ros::Duration(1.0));
-					listener.lookupTransform("world", "red", last_body_pose_time, red_wrt_reference_temp);
-					red_wrt_reference = red_wrt_reference_temp;
 					tf::Quaternion n_ref_4 = ((reference_wrt_world.getRotation().inverse())*tf::Quaternion(n_world.getX(),n_world.getY(),n_world.getZ(),0))*reference_wrt_world.getRotation();
 					n_ref.setValue(n_ref_4.getX(), n_ref_4.getY(), n_ref_4.getZ());
 					std::cout << "set reference transform" << std::endl;
+					
+					// setting red wrt reference
+					br.sendTransform(tf::StampedTransform(red_wrt_world, last_body_pose_time, "world", "red"));
+					br.sendTransform(tf::StampedTransform(reference_wrt_world, last_body_pose_time, "world", "reference_image"));
+					tf::StampedTransform red_wrt_reference_temp;
+					listener.waitForTransform("reference_image", "red",last_body_pose_time,ros::Duration(1.0));
+					listener.lookupTransform("reference_image", "red", last_body_pose_time, red_wrt_reference_temp);
+					red_wrt_reference = red_wrt_reference_temp;
+					
+					std::cout << "reference red z: " << red_wrt_reference.getOrigin().getZ() << std::endl;
+					// setting the desired
+					
+					
 					start_controller = true;
 				}
 				catch (tf::TransformException ex)
@@ -1469,66 +1477,67 @@ class Controller
 		/********** update the desired pixels **********/
 		void update_desired_pixels()
 		{	
-			current_time_d = ros::Time::now();
-			double time_diff = current_time_d.toSec() - last_time_d.toSec();// get the time difference
-			Q_dw = desired_wrt_world.getRotation();// rotation of camera wrt world
-			cv::Mat Q_dw_old = cv::Mat::zeros(4,1,CV_64F);
-			Q_dw_old.at<double>(0,0) = Q_dw.getW(); Q_dw_old.at<double>(1,0) = Q_dw.getX(); Q_dw_old.at<double>(2,0) = Q_dw.getY(); Q_dw_old.at<double>(3,0) = Q_dw.getZ();
-			cv::Mat Bd = cv::Mat::zeros(4,3,CV_64F);// differential matrix
-			Bd.at<double>(0,0) = -Q_dw.getX(); Bd.at<double>(0,1) = -Q_dw.getY(); Bd.at<double>(0,2) = -Q_dw.getZ();
-			Bd.at<double>(1,0) = Q_dw.getW(); Bd.at<double>(1,1) = -Q_dw.getZ(); Bd.at<double>(1,2) = Q_dw.getY();
-			Bd.at<double>(2,0) = Q_dw.getZ(); Bd.at<double>(2,1) = Q_dw.getW(); Bd.at<double>(2,2) = -Q_dw.getX();
-			Bd.at<double>(3,0) = -Q_dw.getY(); Bd.at<double>(3,1) = Q_dw.getX(); Bd.at<double>(3,2) = Q_dw.getW();
-			cv::Mat Q_dw_dot = 0.5*(Bd*wcd_cv);// rate of change of rotation of camera wrt world
-			cv::Mat Q_dw_new = cv::Mat::zeros(4,1,CV_64F);
-			Q_dw_new = Q_dw_old + Q_dw_dot*time_diff;//update the quaternion
-			double Q_dw_new_norm = std::sqrt(std::pow(Q_dw_new.at<double>(0,0),2)+
-											 std::pow(Q_dw_new.at<double>(1,0),2)+
-											 std::pow(Q_dw_new.at<double>(2,0),2)+
-											 std::pow(Q_dw_new.at<double>(3,0),2));
-			Q_dw_new = (1.0/Q_dw_new_norm)*Q_dw_new;//normalize
-			Q_dw = tf::Quaternion(Q_dw_new.at<double>(1,0),Q_dw_new.at<double>(2,0),Q_dw_new.at<double>(3,0),Q_dw_new.at<double>(0,0));//updating
-			desired_wrt_world.setRotation(Q_dw);//updating the transform
-			tf::Quaternion Q_P_dw_dot = (Q_dw*tf::Quaternion(vcd.getX(),vcd.getY(),vcd.getZ(),0.0))*Q_dw.inverse();//express vcd in world frame
-			tf::Vector3 P_dw_dot = tf::Vector3(Q_P_dw_dot.getX(),Q_P_dw_dot.getY(),Q_P_dw_dot.getZ());
-			tf::Vector3 P_dw = desired_wrt_world.getOrigin();//origin of camera wrt world
-			tf::Vector3 P_dw_new = P_dw + P_dw_dot*time_diff;//update origin
-			desired_wrt_world.setOrigin(P_dw_new);//updating the transform
-
-			//std::cout << "wcd:\n x: " << wcd.getX() << " y: " << wcd.getY() << " z: " << wcd.getZ() << std::endl;
-			//std::cout << "vcd:\n x: " << vcd.getX() << " y: " << vcd.getY() << " z: " << vcd.getZ() << std::endl;
-			//std::cout << "Q_dw_dot:\n x: " << Q_dw_dot.at<double>(0,0) << " y: " << Q_dw_dot.at<double>(1,0) << " z: " << Q_dw_dot.at<double>(2,0) << " w: " << Q_dw_dot.at<double>(3,0) << std::endl;
-			//std::cout << "Q_dw:\n x: " << Q_dw.getX() << " y: " << Q_dw.getY() << " z: " << Q_dw.getZ() << " w: " << Q_dw.getW() << std::endl;
-			//std::cout << "P_dw_dot:\n x: " << P_dw_dot.getX() << " y: " << P_dw_dot.getY() << " z: " << P_dw_dot.getZ() << std::endl;
-			//std::cout << "P_dw:\n x: " << P_dw.getX() << " y: " << P_dw.getY() << " z: " << P_dw.getZ() << std::endl;
-			
-			/********** update pixels wrt desired  **********/
-			tf::Vector3 temp_v;
-			tf::Quaternion temp_Q;
-			temp_v = P_red_wrt_world-desired_wrt_world.getOrigin(); temp_Q = ((desired_wrt_world.getRotation().inverse())*tf::Quaternion(temp_v.getX(),temp_v.getY(),temp_v.getZ(),0.0))*desired_wrt_world.getRotation(); mrd_bar = tf::Vector3(temp_Q.getX(),temp_Q.getY(),temp_Q.getZ()); // red
-			temp_v = P_green_wrt_world-desired_wrt_world.getOrigin(); temp_Q = ((desired_wrt_world.getRotation().inverse())*tf::Quaternion(temp_v.getX(),temp_v.getY(),temp_v.getZ(),0.0))*desired_wrt_world.getRotation(); mgd_bar = tf::Vector3(temp_Q.getX(),temp_Q.getY(),temp_Q.getZ()); // green
-			temp_v = P_cyan_wrt_world-desired_wrt_world.getOrigin(); temp_Q = ((desired_wrt_world.getRotation().inverse())*tf::Quaternion(temp_v.getX(),temp_v.getY(),temp_v.getZ(),0.0))*desired_wrt_world.getRotation(); mcd_bar = tf::Vector3(temp_Q.getX(),temp_Q.getY(),temp_Q.getZ()); // cyan
-			temp_v = P_purple_wrt_world-desired_wrt_world.getOrigin(); temp_Q = ((desired_wrt_world.getRotation().inverse())*tf::Quaternion(temp_v.getX(),temp_v.getY(),temp_v.getZ(),0.0))*desired_wrt_world.getRotation(); mpd_bar = tf::Vector3(temp_Q.getX(),temp_Q.getY(),temp_Q.getZ()); // purple
-			prd = A*((1/mrd_bar.getZ())*mrd_bar); pgd = A*((1/mgd_bar.getZ())*mgd_bar); pcd = A*((1/mcd_bar.getZ())*mcd_bar); ppd = A*((1/mpd_bar.getZ())*mpd_bar);// camera points as pixels
-			
-			//std::cout << "prd:\n x: " << prd.getX() << " y: " << prd.getY() << " z: " << prd.getZ() << std::endl;
-			//std::cout << "pgd:\n x: " << pgd.getX() << " y: " << pgd.getY() << " z: " << pgd.getZ() << std::endl;
-			//std::cout << "pcd:\n x: " << pcd.getX() << " y: " << pcd.getY() << " z: " << pcd.getZ() << std::endl;
-			//std::cout << "ppd:\n x: " << ppd.getX() << " y: " << ppd.getY() << " z: " << ppd.getZ() << std::endl;
-			
-			desired_pixels.header.stamp = ros::Time::now();
-			desired_pixels.pr.x = prd.getX(); desired_pixels.pr.y = prd.getY(); desired_pixels.pr.z = prd.getZ();//red
-			desired_pixels.pg.x = pgd.getX(); desired_pixels.pg.y = pgd.getY(); desired_pixels.pg.z = pgd.getZ();//green
-			desired_pixels.pc.x = pcd.getX(); desired_pixels.pc.y = pcd.getY(); desired_pixels.pc.z = pcd.getZ();//cyan
-			desired_pixels.pp.x = ppd.getX(); desired_pixels.pp.y = ppd.getY(); desired_pixels.pp.z = ppd.getZ();//purple
-			
-			desired_pixels_pub.publish(desired_pixels);
-			
-			/********* desired wrt world *********/
-			br.sendTransform(tf::StampedTransform(desired_wrt_world, current_time_d, "world", "desired_image"));
-			
 			if (start_controller)
 			{
+				current_time_d = ros::Time::now();
+				double time_diff = current_time_d.toSec() - last_time_d.toSec();// get the time difference
+				Q_dw = desired_wrt_world.getRotation();// rotation of camera wrt world
+				cv::Mat Q_dw_old = cv::Mat::zeros(4,1,CV_64F);
+				Q_dw_old.at<double>(0,0) = Q_dw.getW(); Q_dw_old.at<double>(1,0) = Q_dw.getX(); Q_dw_old.at<double>(2,0) = Q_dw.getY(); Q_dw_old.at<double>(3,0) = Q_dw.getZ();
+				cv::Mat Bd = cv::Mat::zeros(4,3,CV_64F);// differential matrix
+				Bd.at<double>(0,0) = -Q_dw.getX(); Bd.at<double>(0,1) = -Q_dw.getY(); Bd.at<double>(0,2) = -Q_dw.getZ();
+				Bd.at<double>(1,0) = Q_dw.getW(); Bd.at<double>(1,1) = -Q_dw.getZ(); Bd.at<double>(1,2) = Q_dw.getY();
+				Bd.at<double>(2,0) = Q_dw.getZ(); Bd.at<double>(2,1) = Q_dw.getW(); Bd.at<double>(2,2) = -Q_dw.getX();
+				Bd.at<double>(3,0) = -Q_dw.getY(); Bd.at<double>(3,1) = Q_dw.getX(); Bd.at<double>(3,2) = Q_dw.getW();
+				cv::Mat Q_dw_dot = 0.5*(Bd*wcd_cv);// rate of change of rotation of camera wrt world
+				cv::Mat Q_dw_new = cv::Mat::zeros(4,1,CV_64F);
+				Q_dw_new = Q_dw_old + Q_dw_dot*time_diff;//update the quaternion
+				double Q_dw_new_norm = std::sqrt(std::pow(Q_dw_new.at<double>(0,0),2)+
+												 std::pow(Q_dw_new.at<double>(1,0),2)+
+												 std::pow(Q_dw_new.at<double>(2,0),2)+
+												 std::pow(Q_dw_new.at<double>(3,0),2));
+				Q_dw_new = (1.0/Q_dw_new_norm)*Q_dw_new;//normalize
+				Q_dw = tf::Quaternion(Q_dw_new.at<double>(1,0),Q_dw_new.at<double>(2,0),Q_dw_new.at<double>(3,0),Q_dw_new.at<double>(0,0));//updating
+				desired_wrt_world.setRotation(Q_dw);//updating the transform
+				tf::Quaternion Q_P_dw_dot = (Q_dw*tf::Quaternion(vcd.getX(),vcd.getY(),vcd.getZ(),0.0))*Q_dw.inverse();//express vcd in world frame
+				tf::Vector3 P_dw_dot = tf::Vector3(Q_P_dw_dot.getX(),Q_P_dw_dot.getY(),Q_P_dw_dot.getZ());
+				tf::Vector3 P_dw = desired_wrt_world.getOrigin();//origin of camera wrt world
+				tf::Vector3 P_dw_new = P_dw + P_dw_dot*time_diff;//update origin
+				desired_wrt_world.setOrigin(P_dw_new);//updating the transform
+	
+				//std::cout << "wcd:\n x: " << wcd.getX() << " y: " << wcd.getY() << " z: " << wcd.getZ() << std::endl;
+				//std::cout << "vcd:\n x: " << vcd.getX() << " y: " << vcd.getY() << " z: " << vcd.getZ() << std::endl;
+				//std::cout << "Q_dw_dot:\n x: " << Q_dw_dot.at<double>(0,0) << " y: " << Q_dw_dot.at<double>(1,0) << " z: " << Q_dw_dot.at<double>(2,0) << " w: " << Q_dw_dot.at<double>(3,0) << std::endl;
+				//std::cout << "Q_dw:\n x: " << Q_dw.getX() << " y: " << Q_dw.getY() << " z: " << Q_dw.getZ() << " w: " << Q_dw.getW() << std::endl;
+				//std::cout << "P_dw_dot:\n x: " << P_dw_dot.getX() << " y: " << P_dw_dot.getY() << " z: " << P_dw_dot.getZ() << std::endl;
+				//std::cout << "P_dw:\n x: " << P_dw.getX() << " y: " << P_dw.getY() << " z: " << P_dw.getZ() << std::endl;
+				
+				/********** update pixels wrt desired  **********/
+				tf::Vector3 temp_v;
+				tf::Quaternion temp_Q;
+				temp_v = P_red_wrt_world-desired_wrt_world.getOrigin(); temp_Q = ((desired_wrt_world.getRotation().inverse())*tf::Quaternion(temp_v.getX(),temp_v.getY(),temp_v.getZ(),0.0))*desired_wrt_world.getRotation(); mrd_bar = tf::Vector3(temp_Q.getX(),temp_Q.getY(),temp_Q.getZ()); // red
+				temp_v = P_green_wrt_world-desired_wrt_world.getOrigin(); temp_Q = ((desired_wrt_world.getRotation().inverse())*tf::Quaternion(temp_v.getX(),temp_v.getY(),temp_v.getZ(),0.0))*desired_wrt_world.getRotation(); mgd_bar = tf::Vector3(temp_Q.getX(),temp_Q.getY(),temp_Q.getZ()); // green
+				temp_v = P_cyan_wrt_world-desired_wrt_world.getOrigin(); temp_Q = ((desired_wrt_world.getRotation().inverse())*tf::Quaternion(temp_v.getX(),temp_v.getY(),temp_v.getZ(),0.0))*desired_wrt_world.getRotation(); mcd_bar = tf::Vector3(temp_Q.getX(),temp_Q.getY(),temp_Q.getZ()); // cyan
+				temp_v = P_purple_wrt_world-desired_wrt_world.getOrigin(); temp_Q = ((desired_wrt_world.getRotation().inverse())*tf::Quaternion(temp_v.getX(),temp_v.getY(),temp_v.getZ(),0.0))*desired_wrt_world.getRotation(); mpd_bar = tf::Vector3(temp_Q.getX(),temp_Q.getY(),temp_Q.getZ()); // purple
+				prd = A*((1/mrd_bar.getZ())*mrd_bar); pgd = A*((1/mgd_bar.getZ())*mgd_bar); pcd = A*((1/mcd_bar.getZ())*mcd_bar); ppd = A*((1/mpd_bar.getZ())*mpd_bar);// camera points as pixels
+				
+				//std::cout << "prd:\n x: " << prd.getX() << " y: " << prd.getY() << " z: " << prd.getZ() << std::endl;
+				//std::cout << "pgd:\n x: " << pgd.getX() << " y: " << pgd.getY() << " z: " << pgd.getZ() << std::endl;
+				//std::cout << "pcd:\n x: " << pcd.getX() << " y: " << pcd.getY() << " z: " << pcd.getZ() << std::endl;
+				//std::cout << "ppd:\n x: " << ppd.getX() << " y: " << ppd.getY() << " z: " << ppd.getZ() << std::endl;
+				
+				desired_pixels.header.stamp = ros::Time::now();
+				desired_pixels.pr.x = prd.getX(); desired_pixels.pr.y = prd.getY(); desired_pixels.pr.z = prd.getZ();//red
+				desired_pixels.pg.x = pgd.getX(); desired_pixels.pg.y = pgd.getY(); desired_pixels.pg.z = pgd.getZ();//green
+				desired_pixels.pc.x = pcd.getX(); desired_pixels.pc.y = pcd.getY(); desired_pixels.pc.z = pcd.getZ();//cyan
+				desired_pixels.pp.x = ppd.getX(); desired_pixels.pp.y = ppd.getY(); desired_pixels.pp.z = ppd.getZ();//purple
+				
+				desired_pixels_pub.publish(desired_pixels);
+				
+				/********* desired wrt world *********/
+				br.sendTransform(tf::StampedTransform(desired_wrt_world, current_time_d, "world", "desired_image"));
+			
+			
 				/********* desired wrt reference *********/
 				br.sendTransform(tf::StampedTransform(reference_wrt_world, current_time_d, "world", "reference_image"));//update the reference
 				tf::StampedTransform desired_wrt_reference;
@@ -1569,8 +1578,10 @@ class Controller
 					
 					 
 				}
-				alpha_red_d = mr_bar_ref.getZ()/mrd_bar.getZ();
-				
+				alpha_red_d = red_wrt_reference.getOrigin().getZ()/mrd_bar.getZ();
+				//std::cout << "reference red z: " << red_wrt_reference.getOrigin().getZ() << std::endl;
+				//std::cout << "desired red z: " << mrd_bar.getZ() << std::endl;
+				//std::cout << "alpha red desired: " << alpha_red_d << std::endl;
 				Q_df_last = Q_df;// updating the last
 				desired_wrt_reference.setRotation(Q_df);// updating the desired_wrt_reference
 			}
@@ -1923,12 +1934,12 @@ class Controller
 					// output angular velocity is q_cam_wrt_body * wc * q_cam_wrt_body.inverse()
 					tf::Quaternion wc_body = (camera_wrt_body.getRotation() * tf::Quaternion(wc.getX(), wc.getY(), wc.getZ(), 0)) * (camera_wrt_body.getRotation().inverse());
 					velocity_command.angular.z = wc_body.getZ();
-					//std::cout << "wc_body:\n x: " << wcd.getX() << " y: " << wcd.getY() << " z: " << wcd.getZ() << std::endl;
-					//std::cout << "vc_body:\n x: " << velocity_command.linear.x << " y: " << velocity_command.linear.y << " z: " << velocity_command.linear.z << std::endl;
+					
 					std::cout << "none are nan" << std::endl;
 					std::cout << "vc_body_term1:\n x: " << vc_body_term1.getX() << " y: " << vc_body_term1.getY() << " z: " << vc_body_term1.getZ() << " w: " << vc_body_term1.getW() << std::endl;
 					std::cout << "vc_body_term2:\n x: " << vc_body_term2.getX() << " y: " << vc_body_term2.getY() << " z: " << vc_body_term2.getZ() << std::endl;
-					std::cout << "wc_body:\n x: " << wc_body.getX() << " y: " << wc_body.getY() << " z: " << wc_body.getZ() << std::endl;
+					std::cout << "vc_body:\n x: " << velocity_command.linear.x << " y: " << velocity_command.linear.y << " z: " << velocity_command.linear.z << std::endl;
+					std::cout << "wc_body:\n x: " << wcd.getX() << " y: " << wcd.getY() << " z: " << wcd.getZ() << std::endl;
 				}
 				else
 				{
@@ -2012,7 +2023,7 @@ int main(int argc, char** argv)
 	double loop_rate_hz = 30;
 	bool write_to_file = true;
 	
-	std::string filename = "/home/ncr/ncr_ws/src/homog_track/testing_files/experiment_7.txt";
+	std::string filename = "/home/ncr/ncr_ws/src/homog_track/testing_files/experiment_8.txt";
 	if( (std::remove( filename.c_str() ) != 0) && write_to_file)
 	{
 		std::cout << "file does not exist" << std::endl;
