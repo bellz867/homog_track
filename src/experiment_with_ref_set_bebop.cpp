@@ -88,7 +88,7 @@ class ImageProcessing
 		
 		/********** threshold declarations and initializations **********/
 		// order is {lower hue, upper hue, lower saturation, upper saturation, lower value, upper value}
-		int r_thresh[6] = {155, 1, 25, 255, 80, 255};// values for the red color threshold values: hue, staturation, and value
+		int r_thresh[6] = {155, 180, 25, 255, 80, 255};// values for the red color threshold values: hue, staturation, and value
 		int g_thresh[6] = {65, 90, 40, 255, 40, 255};// values for the green color threshold values: hue, staturation, and value
 		int c_thresh[6] = {95, 105, 60, 255, 80, 255};// values for the cyan color threshold values: hue, staturation, and value
 		int p_thresh[6] = {110, 135, 30, 255, 50, 255};// values for the violet color threshold values: hue, staturation, and value
@@ -886,11 +886,11 @@ class Controller
 		std::string output_file_name; // file name
 		
 		/********** Gains **********/
-		double Kws = 0.75;// K_w scalar
+		double Kws = 0.2;// K_w scalar
 		tf::Matrix3x3 Kw = tf::Matrix3x3(Kws,0,0,
 										 0,Kws,0,
 										 0,0,Kws);// rotational gain matrix initialize to identity
-		double Kvs = 1;
+		double Kvs = 0.5;
 		tf::Matrix3x3 Kv = tf::Matrix3x3(Kvs,0,0,
 										 0,Kvs,0,
 										 0,0,Kvs);// linear velocity gain matrix
@@ -1131,8 +1131,8 @@ class Controller
 			red_wrt_reference.setIdentity();
 			
 			/********** desired wrt world **********/
-			double zd_init = 1; //starting desired height
-			desired_radius = 0.5;// desired radius in meters
+			double zd_init = 1.5; //starting desired height
+			desired_radius = 1;// desired radius in meters
 			desired_period = 60;
 			desired_body_wrt_world.setOrigin(tf::Vector3(-1*desired_radius,0,zd_init));//start body back 1 m along x and up 2 m
 			tf::Matrix3x3 R_desired_body_wrt_world(1,0,0,
