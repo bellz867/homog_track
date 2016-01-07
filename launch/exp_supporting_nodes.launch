@@ -1,0 +1,37 @@
+ <launch>
+ <!-- Start the joy node on js1 -->
+  <node pkg="joy" type="joy_node" name="joy_node">
+      <param name="dev" value="/dev/input/js1"/>
+  </node>
+  
+ <!-- mocap node-->
+  <include file="$(find mocap_optitrack)/launch/mocap.launch"/>
+ 
+ <!-- bebop driver -->
+  <include file="$(find bebop_driver)/launch/bebop_node.launch"/>
+  
+ <!-- bebop gimbal tf driver -->
+  <include file="$(find bebop_gimbal_tf)/launch/bebop_gimbal_tf.launch"/>
+ 
+ <!-- Launch world to image pose publisher (i.e. publish pose messages for the corresponding tf) -->
+  <node pkg="robot_pose_publisher" type="robot_pose_publisher" name="robot_pose_publisher" output="screen" >
+      <param name="map_frame" value="world" />
+      <param name="base_frame" value="bebop_image" />
+      <param name="publish_frequency" value="360.0" />
+      <param name="is_stamped" value="true" />
+      <remap from="robot_pose" to="bebop_image/pose" />
+  </node>
+  
+ <!-- image velocity publisher -->
+  <node pkg="switch_vis_exp" type="filter_node" name="bebop_image_vel" output="screen" ns="bebop_image">
+  </node>
+
+ <!-- bebop body velocity publisher -->
+  <node pkg="switch_vis_exp" type="filter_node" name="bebop_vel" output="screen" ns="bebop">
+  </node>
+  
+ <!-- joystick control node -->
+  <node pkg="homog_track" type="joy_stick_control_node" name="joy_stick_control_node" output="screen">
+  </node>  
+
+</launch>

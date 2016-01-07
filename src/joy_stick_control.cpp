@@ -73,6 +73,7 @@ class Joycall
 		void cmd_vel_callback(const geometry_msgs::Twist& msg)
 		{
 			velocity_command = msg;
+			velocity_command.angular.z = -1*velocity_command.angular.z;// z must be switched because bebop driver http://bebop-autonomy.readthedocs.org/en/latest/piloting.html
 			if (start_autonomous)
 			{
 				recieved_command = true;
@@ -150,7 +151,7 @@ class Joycall
 			command_from_xbox.linear.z = joy_gain*lt_stick_ud_z_a1;
 			
 			lt_stick_lr_th_a0 = joy_deadband(msg.axes[0]);// left thumbstick left and right controls angular z
-			command_from_xbox.angular.z = joy_gain*lt_stick_lr_th_a0;
+			command_from_xbox.angular.z = -1*joy_gain*lt_stick_lr_th_a0;
 			std::cout << "xbox callback" << std::endl;
 			
 			std::cout << "linear x: " << command_from_xbox.linear.x << std::endl;
