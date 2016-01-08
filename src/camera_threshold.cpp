@@ -146,7 +146,7 @@ class ImageProcessing
 		
 		/********** threshold declarations and initializations **********/
 		// order is {lower hue, upper hue, lower saturation, upper saturation, lower value, upper value}
-		int r_thresh[6] = {155, 1, 25, 255, 80, 255};// values for the red color threshold values: hue, staturation, and value
+		int r_thresh[6] = {155, 180, 25, 255, 80, 255};// values for the red color threshold values: hue, staturation, and value
 		int g_thresh[6] = {65, 90, 40, 255, 40, 255};// values for the green color threshold values: hue, staturation, and value
 		int c_thresh[6] = {95, 105, 60, 255, 80, 255};// values for the cyan color threshold values: hue, staturation, and value
 		int p_thresh[6] = {110, 135, 30, 255, 50, 255};// values for the violet color threshold values: hue, staturation, and value
@@ -514,7 +514,7 @@ int main(int argc, char** argv)
 	ros::init(argc,argv,"threshold_testing_node");
 
 	double loop_rate_hz = 15;
-	std::string video_file = "/home/ncr/bebop_neg_45_deg.avi";
+	std::string video_file = "/home/v1_ws/overshoot_experiment_8_regulation.avi";
 	ImageGenerator image_generator(video_file);
 	ImageProcessing image_processing;// image processing
 	

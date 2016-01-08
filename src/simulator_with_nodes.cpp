@@ -784,11 +784,11 @@ class Controller
 			R_dw.getRotation(Q_dw);// initialize quaternion
 			desired_wrt_world.setRotation(Q_dw);// set the rotation
 			wcd_cv = cv::Mat::zeros(3,1,CV_64F);
-			wcd_cv.at<double>(2,0) = -2*M_PIl/desired_period;
-			//wcd.at<double>(2,0) = 0;
+			//wcd_cv.at<double>(2,0) = -2*M_PIl/desired_period;
+			wcd_cv.at<double>(2,0) = 0;
 			wcd = tf::Vector3(0,0,wcd_cv.at<double>(2,0));
-			vcd = tf::Vector3(2*M_PIl*desired_radius/desired_period,0,0);
-			//vcd = tf::Vector3(0,0,0);
+			//vcd = tf::Vector3(2*M_PIl*desired_radius/desired_period,0,0);
+			vcd = tf::Vector3(0,0,0);
 			
 			/********** pixels wrt desired  **********/
 			temp_v = P_red_wrt_world-desired_wrt_world.getOrigin(); temp_Q = ((desired_wrt_world.getRotation().inverse())*tf::Quaternion(temp_v.getX(),temp_v.getY(),temp_v.getZ(),0.0))*desired_wrt_world.getRotation(); mrd_bar = tf::Vector3(temp_Q.getX(),temp_Q.getY(),temp_Q.getZ()); // red
