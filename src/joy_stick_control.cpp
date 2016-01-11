@@ -57,7 +57,7 @@ class Joycall
 			cmd_vel_pub.publish(geometry_msgs::Twist());// initially sending it a desired command of 0
 			
 			// testing showed that -55 is a pretty good starting angle
-			gimbal_state_current.angular.y = -45;
+			gimbal_state_current.angular.y = -55;
 		}
 		
 		/********** callback for the camera desired gimbal center **********/

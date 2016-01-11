@@ -898,6 +898,7 @@ class Controller
 		double gamma_1 = 0.001;// control gains for the z_star_hat_dot calculation
 		double gamma_2 = 0.0001;
 		double zr_star_hat = 2;// current value for zr_star_hat
+		double zr_star_hatm = 2;// current value for zr_star_hat from mocap
 		
 		/********** Points **********/
 		tf::Vector3 P_red_wrt_world, P_green_wrt_world, P_cyan_wrt_world, P_purple_wrt_world;// homography points wrt world
@@ -935,6 +936,7 @@ class Controller
 		tf::Transform camera_wrt_world_calc;
 		
 		/********** Camera using the mocap **********/
+		tf::Transform red_wrt_cameram, green_wrt_cameram, cyan_wrt_cameram, purple_wrt_cameram;
 		tf::Vector3 mrm_bar, mgm_bar, mcm_bar, mpm_bar;// points wrt camera from the mocap
 		tf::Vector3 mrm, mgm, mcm, mpm;// normalized points wrt camera from the mocap
 		tf::Vector3 prm, pgm, pcm, ppm;// points pixels wrt camera from the mocap
@@ -1027,6 +1029,17 @@ class Controller
 		std::deque<double>::iterator curr_Ev_minus_Phi_svd_min_iter;// iterator to the min norm on the stack
 		int curr_Ev_minus_Phi_svd_min_index;
 		
+		/********** Stack and buffers Controller from mocap**********/
+		tf::Vector3 Evm = tf::Vector3(0,0,0); tf::Vector3 Phim = tf::Vector3(0,0,0); tf::Vector3 Um = tf::Vector3(0,0,0); tf::Vector3 Uvarm = tf::Vector3(0,0,0);// current value for Ev, Phi, U, and Uvar
+		std::deque<tf::Vector3> Ev_samplesm, Phi_samplesm, Uvar_samplesm;// buffer samples for learning stack terms
+		std::deque<tf::Vector3> Usm, Evs_minus_Phism;// learning stack terms
+		std::deque<double> Evs_minus_Phis_svdsm;// norms for the Ev - Phi stack
+		tf::Vector3 Ev_minus_Phim;// current Ev - Phi
+		double Ev_minus_Phi_svdm;// current Ev - Phi svd
+		double curr_Ev_minus_Phi_svd_minm;// min svd on the Ev - Phi svd stack
+		std::deque<double>::iterator curr_Ev_minus_Phi_svd_min_iterm;// iterator to the min norm on the stack
+		int curr_Ev_minus_Phi_svd_min_indexm;
+		
 		/********** zr hat estimate Controller **********/
 		double zr_star_hat_dot = 0;// current value for zr_star_hat_dot = gamma1*transpose(ev)*phi + gamma1*gamma2*sum_from_k=1_to_n( transpose(Ev(k)-Phi(k))*(-(Ev(k)-Phi(k))*zr_star_hat - U(k)) )
 		double zr_star_hat_dot_sum = 0;// temp for the summation in zr_star_hat_dot
@@ -1038,11 +1051,15 @@ class Controller
 		bool new_decomp_recieved = false;
 		bool new_joy_recieved = false;
 		
+		/********** zr hat estimate Controller from mocap **********/
+		double zr_star_hat_dotm = 0;// current value for zr_star_hat_dot = gamma1*transpose(ev)*phi + gamma1*gamma2*sum_from_k=1_to_n( transpose(Ev(k)-Phi(k))*(-(Ev(k)-Phi(k))*zr_star_hat - U(k)) )
+		double zr_star_hat_dot_summ = 0;// temp for the summation in zr_star_hat_dot
+		
 		/********** output command choice and xbox controller **********/
-		geometry_msgs::Twist velocity_command;
+		geometry_msgs::Twist velocity_command, velocity_commandm, velocity_commandout;
 		geometry_msgs::Pose velocity_as_pose;
 		int a_button_land_b0 = 0, b_button_reset_b1 = 0, y_button_takeoff_b3 = 0, lb_button_teleop_b4 = 0, rb_button_teleop_b5 = 0;
-		double rt_stick_ud_x_a3 = 0, rt_stick_lr_y_a2 = 0, lt_stick_ud_z_a1 = 0, lt_stick_lr_th_a0 = 0;
+		double rt_stick_ud_x_a3 = 0, rt_stick_lr_y_a2 = 0, lt_stick_ud_z_a1 = 0, lt_stick_lr_th_a0 = 0, l_trigger_a5 = 0;
 		
 		/********** markers **********/
 		visualization_msgs::Marker vc_marker, wc_marker, vcm_marker, wcm_marker;
@@ -1162,10 +1179,20 @@ class Controller
 			green_wrt_world_calc.setIdentity(); green_wrt_world_calc.setOrigin(P_green_wrt_world);//green
 			cyan_wrt_world_calc.setIdentity(); cyan_wrt_world_calc.setOrigin(P_cyan_wrt_world);//cyan
 			purple_wrt_world_calc.setIdentity(); purple_wrt_world_calc.setOrigin(P_purple_wrt_world);//purple
+			
+			// from tracking
 			red_wrt_camera_calc.setIdentity();//red
 			green_wrt_camera_calc.setIdentity();//green
 			cyan_wrt_camera_calc.setIdentity();//cyan
 			purple_wrt_camera_calc.setIdentity();//purple
+			
+			// from mocap
+			red_wrt_cameram.setIdentity();//red
+			green_wrt_cameram.setIdentity();//green
+			cyan_wrt_cameram.setIdentity();//cyan
+			purple_wrt_cameram.setIdentity();//purple
+			
+			// from simulated camera
 			red_wrt_des_camera_calc.setIdentity();//red
 			green_wrt_des_camera_calc.setIdentity();//green
 			cyan_wrt_des_camera_calc.setIdentity();//cyan
@@ -1178,8 +1205,8 @@ class Controller
 			red_wrt_reference.setIdentity();
 			
 			/********** camera wrt reference **********/
-			camera_wrt_reference.setIdentity();
-			camera_wrt_referencem.setIdentity();
+			camera_wrt_reference.setIdentity();// from tracking
+			camera_wrt_referencem.setIdentity();// from mocap
 
 			/********** desired wrt world **********/
 			double zd_init = 1.5; //starting desired height
@@ -1238,24 +1265,37 @@ class Controller
 			// initializing the learning parameters to 0s
 			for (int ii = 0; ii < number_of_samples; ii++)
 			{
+				// from tracking
 				Evs_minus_Phis.push_back(tf::Vector3(0,0,0));
 				Evs_minus_Phis_svds.push_back(0.0);
 				Us.push_back(tf::Vector3(0,0,0));
+				
+				// from mocap
+				Evs_minus_Phism.push_back(tf::Vector3(0,0,0));
+				Evs_minus_Phis_svdsm.push_back(0.0);
+				Usm.push_back(tf::Vector3(0,0,0));
 			}
 			
 			// initializing the integrating samples to 0
 			for (int ii = 0; ii < number_of_integrating_samples; ii++)
 			{
+				// from tracking
 				trapz_timestamps.push_back(0.0);
 				Ev_samples.push_back(tf::Vector3(0,0,0));
 				Phi_samples.push_back(tf::Vector3(0,0,0));
 				Uvar_samples.push_back(tf::Vector3(0,0,0));
+				
+				// from mocap
+				Ev_samplesm.push_back(tf::Vector3(0,0,0));
+				Phi_samplesm.push_back(tf::Vector3(0,0,0));
+				Uvar_samplesm.push_back(tf::Vector3(0,0,0));
 			}
 			
 			last_time_d = last_time;//desired last time
 			start_time_d = last_time;//starting time
 			
 			/********* marker **********/
+			// from tracking
 			vc_marker.header.frame_id = "bebop_image";
 			vc_marker.frame_locked = true;
 			vc_marker.header.stamp = ros::Time::now();
@@ -1293,6 +1333,7 @@ class Controller
 			wc_marker.color.b = 0.75;
 			wc_marker.lifetime = vc_marker.lifetime;
 			
+			// from mocap
 			vcm_marker.header.frame_id = "bebop_image";
 			vcm_marker.frame_locked = true;
 			vcm_marker.header.stamp = ros::Time::now();
@@ -1424,10 +1465,6 @@ class Controller
 					first_run = false;
 					start_time = msg.header.stamp;
 					last_time = current_time;
-					//pr_ref.setX() = msg.ref_cam_pixels.pr.x; pr_ref.setY() = msg.ref_cam_pixels.pr.y; pr_ref.setZ() = 1;//red pixels
-					//pg_ref.setX() = msg.ref_cam_pixels.pg.x; pg_ref.setY() = msg.ref_cam_pixels.pg.y; pg_ref.setZ() = 1;//green pixels
-					//pc_ref.setX() = msg.ref_cam_pixels.pc.x; pc_ref.setY() = msg.ref_cam_pixels.pc.y; pc_ref.setZ() = 1;//cyan pixels
-					//pp_ref.setX() = msg.ref_cam_pixels.pp.x; pp_ref.setY() = msg.ref_cam_pixels.pp.y; pp_ref.setZ() = 1;//purple pixels
 				}
 				
 				try
@@ -1489,19 +1526,23 @@ class Controller
 					tf::StampedTransform mim_bar_temp;//temp to hold the pixel wrt camera from the mocap for each of the four colors
 					listener.waitForTransform("bebop_image", "red_wrt_world", current_time, ros::Duration(1.0));
 					listener.lookupTransform("bebop_image", "red_wrt_world", current_time, mim_bar_temp);
-					mrm_bar = mim_bar_temp.getOrigin();//red from mocap
+					red_wrt_cameram = mim_bar_temp;//red from mocap
+					mrm_bar = red_wrt_cameram.getOrigin();
 					listener.waitForTransform("bebop_image", "green_wrt_world", current_time, ros::Duration(1.0));
 					listener.lookupTransform("bebop_image", "green_wrt_world", current_time, mim_bar_temp);
-					mgm_bar = mim_bar_temp.getOrigin();//green from mocap
+					green_wrt_cameram = mim_bar_temp;//green from mocap
+					mgm_bar = green_wrt_cameram.getOrigin();
 					listener.waitForTransform("bebop_image", "cyan_wrt_world", current_time, ros::Duration(1.0));
 					listener.lookupTransform("bebop_image", "cyan_wrt_world", current_time, mim_bar_temp);
-					mcm_bar = mim_bar_temp.getOrigin();//cyan from mocap
+					cyan_wrt_cameram = mim_bar_temp;//cyan from mocap
+					mcm_bar = cyan_wrt_cameram.getOrigin();
 					listener.waitForTransform("bebop_image", "purple_wrt_world", current_time, ros::Duration(1.0));
 					listener.lookupTransform("bebop_image", "purple_wrt_world", current_time, mim_bar_temp);
-					mpm_bar = mim_bar_temp.getOrigin();//purple from mocap
+					purple_wrt_cameram = mim_bar_temp;//purple from mocap
+					mpm_bar = purple_wrt_cameram.getOrigin();
 					mrm = mrm_bar/mrm_bar.getZ(); mgm = mgm_bar/mgm_bar.getZ(); mcm = mcm_bar/mcm_bar.getZ(); mpm = mpm_bar/mpm_bar.getZ();//normalized
 					prm = A*mrm; pgm = A*mgm; pcm = A*mcm; ppm = A*mpm; //pixels
-					alpha_redm = red_wrt_reference.getOrigin.getZ()/mrm_bar.getZ();//alpha red from mocap
+					alpha_redm = red_wrt_reference.getOrigin().getZ()/mrm_bar.getZ();//alpha red from mocap
 					
 					//estimating the position of the red green cyan and purple features
 					mr = A.inverse()*pr;
@@ -1604,7 +1645,7 @@ class Controller
 			// if the bumper is pulled and it is not in autonomous mode will put it in autonomous mode
 			// if the bumper is pulled and it is in autonomous mode will take it out of autonomous mode
 			start_autonomous = lb_button_teleop_b4 > 0;
-			
+			l_trigger_a5 = msg.axes[5];
 			//std::cout << "controller is started: " << start_controller << std::endl;
 			//std::cout << "autonomous mode is: " << start_autonomous << std::endl;
 			
@@ -1789,13 +1830,13 @@ class Controller
 			Q_tildem = Q_df.inverse()*Q_cfm;// rotational error
 			std::cout << "Q_tildem:\n x: " << Q_tildem.getX() << " y: " << Q_tildem.getY() << " z: " << Q_tildem.getZ() << " w: " << Q_tildem.getW() << std::endl;
 			Q_tilde_vm.setValue(Q_tildem.getX(),Q_tildem.getY(),Q_tildem.getZ());// rotational error vector terms
-			tf::Vector3 wcm_term1_temp;
-			wcm_term1_temp = -1*(Kw*Q_tilde_vm); // getting the first term of the wc calc
-			std::cout << "wcm term 1:\n x: " << wcm_term1_temp.getX() << " y: " << wcm_term1_temp.getY() << " z: " << wcm_term1_temp.getZ() << std::endl;
-			tf::Quaternion Qwcm_term2_temp = (Q_tildem.inverse()*Qwcd_temp)*Q_tildem;// calculating the double product for the reporjection of wcd as a quaternion
-			tf::Vector3 wcm_term2_temp(Qwcm_term2_temp.getX(), Qwcm_term2_temp.getY(), Qwcm_term2_temp.getZ());// getting the second term as a vector		  
-			std::cout << "wcm term 2:\n x: " << wcm_term2_temp.getX() << " y: " << wcm_term2_temp.getY() << " z: " << wcm_term2_temp.getZ() << std::endl;
-			wcm = wcm_term1_temp + wcm_term2_temp;// update the velocity
+			tf::Vector3 wc_term1_tempm;
+			wc_term1_tempm = -1*(Kw*Q_tilde_vm); // getting the first term of the wc calc
+			std::cout << "wcm term 1:\n x: " << wc_term1_tempm.getX() << " y: " << wc_term1_tempm.getY() << " z: " << wc_term1_tempm.getZ() << std::endl;
+			tf::Quaternion Qwc_term2_tempm = (Q_tildem.inverse()*Qwcd_temp)*Q_tildem;// calculating the double product for the reporjection of wcd as a quaternion
+			tf::Vector3 wc_term2_tempm(Qwc_term2_tempm.getX(), Qwc_term2_tempm.getY(), Qwc_term2_tempm.getZ());// getting the second term as a vector		  
+			std::cout << "wcm term 2:\n x: " << wc_term2_tempm.getX() << " y: " << wc_term2_tempm.getY() << " z: " << wc_term2_tempm.getZ() << std::endl;
+			wcm = wc_term1_tempm + wc_term2_tempm;// update the velocity
 			std::cout << "wcm:\n x: " << wcm.getX() << " y: " << wcm.getY() << " z: " << wcm.getZ() << std::endl;
 			
 		}
@@ -1808,21 +1849,28 @@ class Controller
 			get_Lvd();// getting Lvd
 			get_ev();// getting ev
 			get_phi();// getting little phi
+			
+			// from tracking
 			tf::Vector3 vc_term1_temp = (1/alpha_red)*(Lv.inverse()*(Kv*ev));// term 1 for the vc calculation
 			tf::Vector3 vc_term2_temp = (1/alpha_red)*(Lv.inverse()*(phi*red_wrt_reference.getOrigin().getZ()));// term 2 for the vc calculation
-			//tf::Vector3 vc_term2_temp = (1/alpha_red)*(Lv.inverse()*(phi*red_wrt_reference.getOrigin().getZ()));// term 2 for the vc calculation
-			//std::cout << "alpha red: " << alpha_red << std::endl;
-			//std::cout << "pr:\n x: " << pr.getX() << " y: " << pr.getY() << " z: " << pr.getZ() << std::endl;
-			
+			vc = vc_term1_temp + vc_term2_temp;// sum them together for vc
 			std::cout << "pe:\n x: " << pe.getX() << " y: " << pe.getY() << " z: " << pe.getZ() << std::endl;
 			std::cout << "ped:\n x: " << ped.getX() << " y: " << ped.getY() << " z: " << ped.getZ() << std::endl;
 			std::cout << "ev:\n x: " << ev.getX() << " y: " << ev.getY() << " z: " << ev.getZ() << std::endl;
 			std::cout << "phi:\n x: " << phi.getX() << " y: " << phi.getY() << " z: " << phi.getZ() << std::endl;
-			std::cout << "zr star hat:\n x: " << zr_star_hat << std::endl;
 			std::cout << "vc term1:\n x: " << vc_term1_temp.getX() << " y: " << vc_term1_temp.getY() << " z: " << vc_term1_temp.getZ() << std::endl;
 			std::cout << "vc term2:\n x: " << vc_term2_temp.getX() << " y: " << vc_term2_temp.getY() << " z: " << vc_term2_temp.getZ() << std::endl;
 			
-			vc = vc_term1_temp + vc_term2_temp;// sum them together for vc
+			// from mocap
+			tf::Vector3 vc_term1_tempm = (1/alpha_redm)*(Lvm.inverse()*(Kv*evm));// term 1 for the vc calculation
+			tf::Vector3 vc_term2_tempm = (1/alpha_redm)*(Lvm.inverse()*(phim*red_wrt_reference.getOrigin().getZ()));// term 2 for the vc calculation
+			vcm = vc_term1_tempm + vc_term2_tempm;// sum them together for vc
+			std::cout << "pem:\n x: " << pem.getX() << " y: " << pem.getY() << " z: " << pem.getZ() << std::endl;
+			std::cout << "ped:\n x: " << ped.getX() << " y: " << ped.getY() << " z: " << ped.getZ() << std::endl;
+			std::cout << "evm:\n x: " << evm.getX() << " y: " << evm.getY() << " z: " << evm.getZ() << std::endl;
+			std::cout << "phim:\n x: " << phim.getX() << " y: " << phim.getY() << " z: " << phim.getZ() << std::endl;
+			std::cout << "vcm term1:\n x: " << vc_term1_tempm.getX() << " y: " << vc_term1_tempm.getY() << " z: " << vc_term1_tempm.getZ() << std::endl;
+			std::cout << "vcm term2:\n x: " << vc_term2_tempm.getX() << " y: " << vc_term2_tempm.getY() << " z: " << vc_term2_tempm.getZ() << std::endl;
 			
 		}
 		/********** update the pixels and everything with them **********/
@@ -1904,12 +1952,9 @@ class Controller
 		/********** calculating the value for ped_dot **********/
 		void get_ped_dot()
 		{
-			tf::Vector3 ped_dot_term1_temp = (-1*alpha_red_d/red_wrt_reference.getOrigin().getZ())*(Lvd*vcd);// getting term 1 for the ped_dot equation
-			ped_dot_term1 = ped_dot_term1_temp;
-			tf::Vector3 ped_dot_term2_temp = (Lvd*ss_mrd)*wcd;// getting term 2 for the ped_dot equation
-			ped_dot_term2 = ped_dot_term2_temp;
-			tf::Vector3 ped_dot_temp = ped_dot_term1_temp + ped_dot_term2_temp;
-			ped_dot = ped_dot_temp;// ped_dot
+			ped_dot_term1 = (-1*alpha_red_d/red_wrt_reference.getOrigin().getZ())*(Lvd*vcd);// getting term 1 for the ped_dot equation
+			ped_dot_term2 = (Lvd*ss_mrd)*wcd;// getting term 2 for the ped_dot equation
+			ped_dot = ped_dot_term1 + ped_dot_term2;// ped_dot
 		}
 	
 		/********** update the estimate for the reference zr_star_hat **********/
@@ -1920,9 +1965,16 @@ class Controller
 			std::cout << "zr star hat dot: " << zr_star_hat_dot << std::endl;
 			std::cout << "time from last: " << time_from_last << std::endl;
 			std::cout << "time from start: " << current_time.toSec() - start_time.toSec() << std::endl;
-			std::cout << "zr star hat before: " << zr_star_hat << std::endl;
+			
+			// from tracking
 			zr_star_hat += zr_star_hat_dot*time_from_last;
 			std::cout << "zr star hat: " << zr_star_hat << std::endl;
+			
+			// from mocap
+			zr_star_hatm += zr_star_hat_dotm*time_from_last;
+			std::cout << "zr star hat mocap: " << zr_star_hatm << std::endl;
+			
+			// reference
 			std::cout << "zr star: " << red_wrt_reference.getOrigin().getZ() << std::endl;
 		}
 		
@@ -1934,13 +1986,22 @@ class Controller
 			get_Ev();// get the new Ev
 			get_Phi();// get the new Phi
 			get_U();// get the new U
+			
+			// from tracking
 			Ev_minus_Phi = Ev - Phi;// Ev - Phi
 			Ev_minus_Phi_svd = Ev_minus_Phi.length2();// Ev - Phi, sum of square of each element
 			curr_Ev_minus_Phi_svd_min_iter = std::min_element(Evs_minus_Phis_svds.begin(),Evs_minus_Phis_svds.end());// finding the minimum value
 			curr_Ev_minus_Phi_svd_min_index = std::distance(Evs_minus_Phis_svds.begin(),curr_Ev_minus_Phi_svd_min_iter);// getting the index of the iterator
+			
+			// from mocap
+			Ev_minus_Phim = Evm - Phim;// Ev - Phi
+			Ev_minus_Phi_svdm = Ev_minus_Phim.length2();// Ev - Phi, sum of square of each element
+			curr_Ev_minus_Phi_svd_min_iterm = std::min_element(Evs_minus_Phis_svdsm.begin(),Evs_minus_Phis_svdsm.end());// finding the minimum value
+			curr_Ev_minus_Phi_svd_min_indexm = std::distance(Evs_minus_Phis_svdsm.begin(),curr_Ev_minus_Phi_svd_min_iterm);// getting the index of the iterator
 
 			if (time_from_begin > integration_window)
 			{
+				// from tracking
 				// if the current norm is greater than the minimum norm of the history will remove the old min and add the new one to the end
 				if ( Ev_minus_Phi_svd > *curr_Ev_minus_Phi_svd_min_iter )
 				{
@@ -1957,43 +2018,78 @@ class Controller
 					zr_star_hat_dot_term2_temp = -(Evs_minus_Phis.at(ii)*zr_star_hat) - Us.at(ii);
 					zr_star_hat_dot_sum += (Evs_minus_Phis.at(ii)).dot(zr_star_hat_dot_term2_temp);
 				}
+				
+				// from mocap
+				// if the current norm is greater than the minimum norm of the history will remove the old min and add the new one to the end
+				if ( Ev_minus_Phi_svdm > *curr_Ev_minus_Phi_svd_min_iterm )
+				{
+					// replace the previous min from the history
+					Evs_minus_Phism.at(curr_Ev_minus_Phi_svd_min_indexm) = Ev_minus_Phim;
+					Evs_minus_Phis_svdsm.at(curr_Ev_minus_Phi_svd_min_indexm) = Ev_minus_Phi_svdm;
+					Usm.at(curr_Ev_minus_Phi_svd_min_indexm) = Um;
+				}
+				// getting the summation
+				zr_star_hat_dot_summ = 0;
+				tf::Vector3 zr_star_hat_dot_term2_tempm = tf::Vector3(0,0,0);
+				for (int ii = 0; ii < Evs_minus_Phism.size(); ii++)
+				{
+					zr_star_hat_dot_term2_tempm = -(Evs_minus_Phism.at(ii)*zr_star_hatm) - Usm.at(ii);
+					zr_star_hat_dot_summ += (Evs_minus_Phism.at(ii)).dot(zr_star_hat_dot_term2_tempm);
+				}
 			}
 			else
 			{
-				zr_star_hat_dot_sum = 0;
+				zr_star_hat_dot_summ = 0;
 			}
 			
-			//std::cout << "zr star hat dot sum: " << zr_star_hat_dot_sum << std::endl;
-			//std::cout << "ev.dot(phi): " << ev.dot(phi) << std::endl;
+			// from tracking
 			//zr_star_hat_dot = gamma_1*ev.dot(phi) + gamma_1*gamma_2*zr_star_hat_dot_sum;
-			/*****************************************************************************************************************************************************************************************/
 			zr_star_hat_dot = gamma_1*gamma_2*zr_star_hat_dot_sum;
+			
+			// from mocap
+			zr_star_hat_dotm = gamma_1*evm.dot(phim) + gamma_1*gamma_2*zr_star_hat_dot_summ;
 		}
 		
 		/********** calculating the value for Ev **********/
 		void get_Ev()
 		{
-			shift_sample_set(Ev_samples, ev);// shifting the buffer
+			shift_sample_set(Ev_samples, ev);// shifting the tracking buffer
+			shift_sample_set(Ev_samplesm, evm);// shifting the mocap buffer
 			// getting Ev, it is the difference between the last and first, if only 1 element, just use the first
 			if (Ev_samples.size() > 1)
 			{
-				Ev = Ev_samples.back() - Ev_samples.front();
+				Ev = Ev_samples.back() - Ev_samples.front();// from tracking
+			}
+			if (Ev_samplesm.size() > 1)
+			{
+				Evm = Ev_samplesm.back() - Ev_samplesm.front();// from mocap
 			}
 		}
 		
 		/********** calculating the value for big Phi **********/
 		void get_Phi()
 		{
+			// from tracking
 			shift_sample_set(Phi_samples, phi);// phi has already been calculated earlier so just need to put onto the deque then integrate
 			calculate_integral(Phi, Phi_samples, trapz_timestamps);// getting the integral to calculate Phi
+			
+			// from mocap
+			shift_sample_set(Phi_samplesm, phim);// phi has already been calculated earlier so just need to put onto the deque then integrate
+			calculate_integral(Phim, Phi_samplesm, trapz_timestamps);// getting the integral to calculate Phi
 		}
 		
 		/********** calculating the value for Uvar **********/
 		void get_U()
 		{
+			// from tracking
 			Uvar = alpha_red*(Lv*vc);// using a new variable uvar to represent the multiplication used to get the integral for U
 			shift_sample_set(Uvar_samples,Uvar);// putting the Uvars onto the Uvar deque
 			calculate_integral(U, Uvar_samples, trapz_timestamps);// getting U, the integral of Uvar_samples
+			
+			// from mocap
+			Uvarm = alpha_redm*(Lvm*vcm);// using a new variable uvar to represent the multiplication used to get the integral for U
+			shift_sample_set(Uvar_samplesm,Uvarm);// putting the Uvars onto the Uvar deque
+			calculate_integral(Um, Uvar_samplesm, trapz_timestamps);// getting U, the integral of Uvar_samples
 		}
 		
 		/********** function to calculate the integral of a Vector3 using trapizoidal rule **********/
@@ -2023,6 +2119,7 @@ class Controller
 				error_out.orientation.x = Q_tilde.getX(); error_out.orientation.y = Q_tilde.getY(); error_out.orientation.z = Q_tilde.getZ(); error_out.orientation.w = Q_tilde.getW(); 
 				current_error_pub.publish(error_out);
 				double scale = 1;
+				// from tracking
 				vc_marker_end.x = scale*vc.getX(); vc_marker_end.y = scale*vc.getY(); vc_marker_end.z = scale*vc.getZ();
 				vc_marker.points.clear();
 				vc_marker.points.push_back(vc_marker_start);
@@ -2032,20 +2129,31 @@ class Controller
 				wc_marker.points.push_back(wc_marker_start);
 				wc_marker.points.push_back(wc_marker_end);
 				
+				// from mocap
+				vcm_marker_end.x = scale*vcm.getX(); vcm_marker_end.y = scale*vcm.getY(); vcm_marker_end.z = scale*vcm.getZ();
+				vcm_marker.points.clear();
+				vcm_marker.points.push_back(vcm_marker_start);
+				vcm_marker.points.push_back(vcm_marker_end);
+				wcm_marker_end.x = scale*wcm.getX(); wcm_marker_end.y = scale*wcm.getY(); wcm_marker_end.z = scale*wcm.getZ();
+				wcm_marker.points.clear();
+				wcm_marker.points.push_back(wcm_marker_start);
+				wcm_marker.points.push_back(wcm_marker_end);
+				
 			}
 			
 			if (start_autonomous && start_controller)
 			{
-				std::cout << "command from controller" << std::endl;
-				std::cout << "vc:\n x: " << vc.getX() << " y: " << vc.getY() << " z: " << vc.getZ() << std::endl;
-				std::cout << "wc:\n x: " << wc.getX() << " y: " << wc.getY() << " z: " << wc.getZ() << std::endl;
-				std::cout << "w_body:\n x: " << w_body.getX() << " y: " << w_body.getY() << " z: " << w_body.getZ() << std::endl;
-				std::cout << "alpha_red: " << alpha_red  << std::endl;
-				std::cout << "alpha_green: " << alpha_green  << std::endl;
-				std::cout << "alpha_cyan: " << alpha_cyan  << std::endl;
-				std::cout << "alpha_purple: " << alpha_purple  << std::endl;
+				//std::cout << "command from controller" << std::endl;
+				//std::cout << "vc:\n x: " << vc.getX() << " y: " << vc.getY() << " z: " << vc.getZ() << std::endl;
+				//std::cout << "wc:\n x: " << wc.getX() << " y: " << wc.getY() << " z: " << wc.getZ() << std::endl;
+				//std::cout << "w_body:\n x: " << w_body.getX() << " y: " << w_body.getY() << " z: " << w_body.getZ() << std::endl;
+				//std::cout << "alpha_red: " << alpha_red  << std::endl;
+				//std::cout << "alpha_green: " << alpha_green  << std::endl;
+				//std::cout << "alpha_cyan: " << alpha_cyan  << std::endl;
+				//std::cout << "alpha_purple: " << alpha_purple  << std::endl;
 				if (!std::isnan(vc.getX()) && !std::isnan(vc.getY()) && !std::isnan(vc.getY()) && !std::isnan(wc.getZ()) && alpha_red > 0 && alpha_green > 0 && alpha_cyan > 0 && alpha_purple > 0)
 				{	
+					// from tracking
 					// output linear velocity is q_cam_wrt_body * vc * q_cam_wrt_body.inverse() - w_body_wrt_world X p_cam_wrt_body
 					tf::Quaternion vc_body_term1 = (camera_wrt_body.getRotation() * tf::Quaternion(vc.getX(), vc.getY(), vc.getZ(), 0)) * (camera_wrt_body.getRotation().inverse());
 					tf::Vector3 vc_body_term2 = w_body.cross(camera_wrt_body.getOrigin());
@@ -2066,6 +2174,29 @@ class Controller
 					std::cout << "wc_body_term1:\n x: " << wc_body_term2.getX() << " y: " << wc_body_term2.getY() << " z: " << wc_body_term2.getZ() << std::endl;
 					std::cout << "wc_body_term1:\n x: " << w_body.getX() << " y: " << w_body.getY() << " z: " << w_body.getZ() << std::endl;
 					std::cout << "wc_body:\n z: " << velocity_command.angular.z << std::endl;
+					
+					// from mocap
+					// output linear velocity is q_cam_wrt_body * vc * q_cam_wrt_body.inverse() - w_body_wrt_world X p_cam_wrt_body
+					tf::Quaternion vc_body_term1m = (camera_wrt_body.getRotation() * tf::Quaternion(vcm.getX(), vcm.getY(), vcm.getZ(), 0)) * (camera_wrt_body.getRotation().inverse());
+					tf::Vector3 vc_body_term2m = w_body.cross(camera_wrt_body.getOrigin());
+					velocity_commandm.linear.x = vc_body_term1m.getX() - vc_body_term2m.getX();
+					velocity_commandm.linear.y = vc_body_term1m.getY() - vc_body_term2m.getY();
+					velocity_commandm.linear.z = vc_body_term1m.getZ() - vc_body_term2m.getZ();
+				
+					// output angular velocity is q_cam_wrt_body * wc * q_cam_wrt_body.inverse() - (q_cam_wrt_body * w_image * q_cam_wrt_body.inverse() - w_body)
+					tf::Quaternion wc_body_term1m = (camera_wrt_body.getRotation() * tf::Quaternion(wcm.getX(), wcm.getY(), wcm.getZ(), 0)) * (camera_wrt_body.getRotation().inverse());
+					tf::Quaternion wc_body_term2m = (camera_wrt_body.getRotation() * tf::Quaternion(w_image.getX(), w_image.getY(), w_image.getZ(), 0)) * (camera_wrt_body.getRotation().inverse());
+					velocity_commandm.angular.z = wc_body_term1m.getZ() - (wc_body_term2m.getZ() - w_body.getZ());
+					
+					std::cout << "none are nan" << std::endl;
+					std::cout << "vc_body_term1m:\n x: " << vc_body_term1m.getX() << " y: " << vc_body_term1m.getY() << " z: " << vc_body_term1m.getZ() << " w: " << vc_body_term1m.getW() << std::endl;
+					std::cout << "vc_body_term2m:\n x: " << vc_body_term2m.getX() << " y: " << vc_body_term2m.getY() << " z: " << vc_body_term2m.getZ() << std::endl;
+					std::cout << "vc_bodym:\n x: " << velocity_commandm.linear.x << " y: " << velocity_commandm.linear.y << " z: " << velocity_commandm.linear.z << std::endl;
+					std::cout << "wc_body_term1m:\n x: " << wc_body_term1m.getX() << " y: " << wc_body_term1m.getY() << " z: " << wc_body_term1m.getZ() << std::endl;
+					std::cout << "wc_body_term1m:\n x: " << wc_body_term2m.getX() << " y: " << wc_body_term2m.getY() << " z: " << wc_body_term2m.getZ() << std::endl;
+					std::cout << "wc_body_term1m:\n x: " << w_body.getX() << " y: " << w_body.getY() << " z: " << w_body.getZ() << std::endl;
+					std::cout << "wc_bodym:\n z: " << velocity_commandm.angular.z << std::endl;
+					
 				}
 				else
 				{
@@ -2073,13 +2204,36 @@ class Controller
 					velocity_command.linear.y = 0;
 					velocity_command.linear.z = 0;
 					velocity_command.angular.z = 0;
+					velocity_commandm.linear.x = 0;
+					velocity_commandm.linear.y = 0;
+					velocity_commandm.linear.z = 0;
+					velocity_commandm.angular.z = 0;
 				}
+				
 				std::cout << "linear x: " << velocity_command.linear.x << std::endl;
 				std::cout << "linear y: " << velocity_command.linear.y << std::endl;
 				std::cout << "linear z: " << velocity_command.linear.z << std::endl;
 				std::cout << "angular z: " << velocity_command.angular.z << std::endl;
-				cmd_vel_pub.publish(velocity_command);
 				
+				std::cout << "linear xm: " << velocity_commandm.linear.x << std::endl;
+				std::cout << "linear ym: " << velocity_commandm.linear.y << std::endl;
+				std::cout << "linear zm: " << velocity_commandm.linear.z << std::endl;
+				std::cout << "angular zm: " << velocity_commandm.angular.z << std::endl;
+				
+				// if left trigger is less than 0 means want to use mocap velocity commands otherwise using camera
+				if (l_trigger_a5 < 0)
+				{
+					velocity_commandout = velocity_commandm;
+				}
+				else
+				{
+					velocity_commandout = velocity_command;
+				}
+				std::cout << "linear x out: " << velocity_commandout.linear.x << std::endl;
+				std::cout << "linear y out: " << velocity_commandout.linear.y << std::endl;
+				std::cout << "linear z out: " << velocity_commandout.linear.z << std::endl;
+				std::cout << "angular z out: " << velocity_commandout.angular.z << std::endl;
+				cmd_vel_pub.publish(velocity_commandout);
 			}
 			
 			if (write_to_file)
@@ -2177,6 +2331,9 @@ int main(int argc, char** argv)
 		}
 		controller.vc_marker_pub.publish(controller.vc_marker);
 		controller.wc_marker_pub.publish(controller.wc_marker);
+		controller.vcm_marker_pub.publish(controller.vcm_marker);
+		controller.wcm_marker_pub.publish(controller.wcm_marker);
+		
 		ros::spinOnce();
 		loop_rate.sleep();
 	}
