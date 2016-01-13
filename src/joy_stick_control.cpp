@@ -43,6 +43,7 @@ class Joycall
 		bool recieved_command = false;
 		bool recieved_control = false;
 		bool first_run = true;
+		double linear_max = 0.15;// max linear velocity
 		
 		Joycall()
 		{
@@ -72,8 +73,10 @@ class Joycall
 		/********** callback for the cmd velocity from the autonomy **********/
 		void cmd_vel_callback(const geometry_msgs::Twist& msg)
 		{
-			velocity_command = msg;
-			velocity_command.angular.z = -1*velocity_command.angular.z;// z must be switched because bebop driver http://bebop-autonomy.readthedocs.org/en/latest/piloting.html
+			velocity_command.linear.x = cap_linear_auto(msg.linear.x);
+			velocity_command.linear.y = cap_linear_auto(msg.linear.y);
+			velocity_command.linear.z = cap_linear_auto(msg.linear.z);
+			velocity_command.angular.z = -1*msg.angular.z;// z must be switched because bebop driver http://bebop-autonomy.readthedocs.org/en/latest/piloting.html
 			if (start_autonomous)
 			{
 				recieved_command = true;
@@ -179,6 +182,27 @@ class Joycall
 				filtered_value = input_value;
 			}
 			return filtered_value;
+		}
+		
+		double cap_linear_auto(double input_value)
+		{
+			double filtered_value = 0;
+			if (std::abs(input_value) > linear_max)
+			{
+				if (input_value >= 0)
+				{
+					filtered_value = linear_max;
+				}
+				else
+				{
+					filtered_value = -1*linear_max;
+				}
+			}
+			else
+			{
+				filtered_value = input_value;
+			}
+			
 		}
 };
 // main
