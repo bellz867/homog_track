@@ -93,3 +93,7 @@ add_dependencies(threshold_testing_node ${${PROJECT_NAME}_EXPORTED_TARGETS} ${ca
 add_executable(joy_stick_control_node src/joy_stick_control.cpp)
 target_link_libraries(joy_stick_control_node ${catkin_LIBRARIES} ${OpenCV_LIBS})
 add_dependencies(joy_stick_control_node ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
+
+add_executable(desired_velocity_generator src/desired_velocity_tester.cpp)
+target_link_libraries(desired_velocity_generator ${catkin_LIBRARIES} ${OpenCV_LIBS})
+add_dependencies(desired_velocity_generator ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})

@@ -1,0 +1,13 @@
+ <launch>
+ <!-- Start the camera recorder -->
+  <node pkg="image_view" type="video_recorder" name="video_recorder">
+      <remap from="image" to="/bebop/image_raw"/>
+      <param name="~fps" value="30"/>
+      <param name="~filename" value="/home/ncr/ncr_ws/src/homog_track/testing_files/experiment.avi"/>
+  </node>
+  
+ <!-- experiment node -->
+  <node pkg="homog_track" type="experiment" name="experiment" output="screen">
+  </node>
+
+</launch>

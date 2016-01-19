@@ -20,6 +20,7 @@
 #include <sensor_msgs/CameraInfo.h>
 #include <sensor_msgs/Joy.h>
 #include <std_msgs/Empty.h>
+#include <std_msgs/Float64.h>
 #include <geometry_msgs/Twist.h>
 #include <sensor_msgs/Imu.h>
 #include <visualization_msgs/Marker.h>
@@ -91,7 +92,7 @@ class ImageProcessing
 		// order is {lower hue, upper hue, lower saturation, upper saturation, lower value, upper value}
 		int r_thresh[6] = {155, 180, 25, 255, 80, 255};// values for the red color threshold values: hue, staturation, and value
 		int g_thresh[6] = {65, 90, 40, 255, 40, 255};// values for the green color threshold values: hue, staturation, and value
-		int c_thresh[6] = {95, 105, 60, 255, 80, 255};// values for the cyan color threshold values: hue, staturation, and value
+		int c_thresh[6] = {95, 105, 100, 255, 150, 255};// values for the cyan color threshold values: hue, staturation, and value
 		int p_thresh[6] = {110, 135, 30, 255, 50, 255};// values for the violet color threshold values: hue, staturation, and value
 		std::vector<int*> thresh_current{ r_thresh, g_thresh, c_thresh, p_thresh };// putting the start arrays into a vector
 		int thresh_max[6] = {180, 180, 255, 255, 255, 255};// max values for the primary colorthreshold value: hue, saturation, and value
@@ -872,7 +873,7 @@ class Controller
 		tf::TransformBroadcaster br;
 		tf::TransformListener listener;
 		ros::Subscriber decomp_sub, joy_sub, body_imu_sub, body_mocap_sub, camera_state_sub, image_imu_sub;
-		ros::Publisher takeoff_pub, land_pub, reset_pub, cmd_vel_pub, desired_pose_pub, current_pose_pub, desired_pixels_pub, current_error_pub, vc_marker_pub, wc_marker_pub, vcm_marker_pub, wcm_marker_pub, vcb_marker_pub, wcb_marker_pub, vcbm_marker_pub, wcbm_marker_pub, w_body_o_pub, w_image_o_pub, wcm_o_pub, wcbm_o_pub;
+		ros::Publisher takeoff_pub, land_pub, reset_pub, cmd_vel_pub, desired_pose_pub, current_pose_pub, desired_pixels_pub, current_error_pub, vc_marker_pub, wc_marker_pub, vcm_marker_pub, wcm_marker_pub, vcb_marker_pub, wcb_marker_pub, vcbm_marker_pub, wcbm_marker_pub, w_body_o_pub, w_image_o_pub, wcm_o_pub, wcbm_o_pub, ped_dot_pub, ped_dot_num_pub, z_tilde_pub, z_tildem_pub;
 		
 		/********** Time Values **********/
 		ros::Time last_time;// last time the camera was updated
@@ -883,7 +884,6 @@ class Controller
 		ros::Time start_timem;// start time
 		ros::Time last_time_d;//desired last time
 		ros::Time current_time_d;//desired current time
-		ros::Time start_time_d;//starting time
 		
 		/********** File Declarations **********/
 		bool write_to_file;
@@ -895,7 +895,7 @@ class Controller
 		tf::Matrix3x3 Kw = tf::Matrix3x3(Kws,0,0,
 										 0,Kws,0,
 										 0,0,Kws);// rotational gain matrix initialize to identity
-		double Kvs = 0.05;
+		double Kvs = 0.5;
 		tf::Matrix3x3 Kv = tf::Matrix3x3(Kvs,0,0,
 										 0,Kvs,0,
 										 0,0,5*Kvs);// linear velocity gain matrix
@@ -979,6 +979,7 @@ class Controller
 		tf::Vector3 prd, pgd, pcd, ppd;// pixels wrt desired
 		tf::Transform desired_wrt_world;// transform for desired wrt world
 		tf::Transform desired_body_wrt_world;// transform for desired body wrt world
+		tf::Matrix3x3 R_desired_body_wrt_world;// desired virtual body is intially aligned with the world
 		tf::Quaternion Q_dw = tf::Quaternion(0,0,0,0), Q_df = tf::Quaternion(0,0,0,0), Q_df_negated = tf::Quaternion(0,0,0,0), Q_df_last = tf::Quaternion(0,0,0,0);// desired wrt reference, last desired wrt reference, and negated desired wrt reference
 		cv::Mat wcd_cv;// desired angular velocity
 		tf::Vector3 vcd;// desired linear velocity
@@ -1008,7 +1009,7 @@ class Controller
 		tf::Vector3 Q_tilde_vm;// rotational error vector porition
 		
 		/********** Vc calc terms Controller **********/
-		tf::Vector3 ev = tf::Vector3(0,0,0), pe = tf::Vector3(0,0,0), ped = tf::Vector3(0,0,0); // value for calculating the current ev, that is pe-ped
+		tf::Vector3 ev = tf::Vector3(0,0,0), pe = tf::Vector3(0,0,0), ped = tf::Vector3(0,0,0), ped_dot_num = tf::Vector3(0,0,0), ped_last = tf::Vector3(0,0,0); // value for calculating the current ev, that is pe-ped
 		tf::Matrix3x3 Lv = tf::Matrix3x3(0,0,0,0,0,0,0,0,0), Lv_term1 = tf::Matrix3x3(0,0,0,0,0,0,0,0,0);// Lv
 		tf::Matrix3x3 Lvd = tf::Matrix3x3(0,0,0,0,0,0,0,0,0), Lvd_term1 = tf::Matrix3x3(0,0,0,0,0,0,0,0,0);// Lvd
 		tf::Vector3 ped_dot_term1 = tf::Vector3(0,0,0), ped_dot_term2 = tf::Vector3(0,0,0), ped_dot = tf::Vector3(0,0,0);//ped_dot
@@ -1061,11 +1062,12 @@ class Controller
 		double zr_star_hat_dot_summ = 0;// temp for the summation in zr_star_hat_dot
 		
 		/********** output command choice and xbox controller **********/
-		geometry_msgs::Twist velocity_command, velocity_commandm, velocity_commandout;
+		geometry_msgs::Twist velocity_command, velocity_commandm, velocity_command_out;
 		geometry_msgs::Pose velocity_as_pose;
 		int a_button_land_b0 = 0, b_button_reset_b1 = 0, y_button_takeoff_b3 = 0, lb_button_teleop_b4 = 0, rb_button_teleop_b5 = 0;
-		double rt_stick_ud_x_a3 = 0, rt_stick_lr_y_a2 = 0, lt_stick_ud_z_a1 = 0, lt_stick_lr_th_a0 = 0, l_trigger_a5 = 0;
+		double rt_stick_ud_x_a3 = 0, rt_stick_lr_y_a2 = 0, lt_stick_ud_z_a1 = 0, lt_stick_lr_th_a0 = 0, l_trigger_a5 = 1;
 		geometry_msgs::Vector3 w_body_o, w_image_o, wcm_o, wcbm_o;
+		std_msgs::Float64 z_tilde, z_tildem;
 		
 		/********** markers **********/
 		visualization_msgs::Marker vc_marker, wc_marker, vcm_marker, wcm_marker, vcb_marker, wcb_marker, vcbm_marker, wcbm_marker;
@@ -1103,15 +1105,20 @@ class Controller
 			w_image_o_pub = nh.advertise<geometry_msgs::Vector3>( "w_image_out", 0 );
 			wcm_o_pub = nh.advertise<geometry_msgs::Vector3>( "w_camera_command_mocap_out", 0 );
 			wcbm_o_pub = nh.advertise<geometry_msgs::Vector3>( "w_body_command_mocap_out", 0 );
+			ped_dot_pub = nh.advertise<geometry_msgs::Vector3>( "ped_dot", 1 );
+			ped_dot_num_pub = nh.advertise<geometry_msgs::Vector3>( "ped_dot_num", 1 );
+			z_tilde_pub = nh.advertise<std_msgs::Float64>( "z_tilde", 1 );
+		    z_tildem_pub = nh.advertise<std_msgs::Float64>( "z_tilde_m", 1 );
 			//camera_state_sub = nh.subscribe("/bebop/camera_control",1,&Controller::camera_state_callback,this);//get the current gimbal desired center
-			
 			/********** Set transform for body wrt world from mocap and calculated **********/
 			body_wrt_world_mocap.setIdentity();
 			body_wrt_world_calc.setIdentity();
 			
 			/********** Camera with respect to body initial **********/
-			camera_init_wrt_body.setOrigin(tf::Vector3(0.053144708904881, -0.007325857858683, -0.063096991249463));
-			camera_init_wrt_body.setRotation(tf::Quaternion(-0.509759529319467,  0.498136685988136, -0.496486743347509,  0.495424003823942));
+			//camera_init_wrt_body.setOrigin(tf::Vector3(0.053144708904881, -0.007325857858683, -0.063096991249463));
+			//camera_init_wrt_body.setRotation(tf::Quaternion(-0.509759529319467,  0.498136685988136, -0.496486743347509,  0.495424003823942));
+			camera_init_wrt_body.setOrigin(tf::Vector3(0.086069752624654,  0.009612428923634, -0.081991922829015));
+			camera_init_wrt_body.setRotation(tf::Quaternion(-0.493500756284127,  0.495570348737951, -0.508288590616885, 0.502451053000183));
 			camera_wrt_camera_init.setOrigin(tf::Vector3(0,0,0));
 			tf::Matrix3x3 camera_wrt_camera_init_rot_temp = tf::Matrix3x3(1,0,0,
 																		  0,std::cos(gimbal_angle),-1*std::sin(gimbal_angle),
@@ -1184,15 +1191,14 @@ class Controller
 			camera_wrt_world_calc.setIdentity();
 			
 			/********** markers wrt world **********/
-			P_red_wrt_world = tf::Vector3(-0.05,-0.05,0); P_green_wrt_world = tf::Vector3(-0.05,0.05,0); P_cyan_wrt_world = tf::Vector3(0.05,0.05,0); P_purple_wrt_world = tf::Vector3(0.05,-0.05,0);// homography points wrt world
-			red_wrt_world.setIdentity(); red_wrt_world.setOrigin(P_red_wrt_world);//red
-			green_wrt_world.setIdentity(); green_wrt_world.setOrigin(P_green_wrt_world);//green
-			cyan_wrt_world.setIdentity(); cyan_wrt_world.setOrigin(P_cyan_wrt_world);//cyan
-			purple_wrt_world.setIdentity(); purple_wrt_world.setOrigin(P_purple_wrt_world);//purple
-			red_wrt_world_calc.setIdentity(); red_wrt_world_calc.setOrigin(P_red_wrt_world);//red
-			green_wrt_world_calc.setIdentity(); green_wrt_world_calc.setOrigin(P_green_wrt_world);//green
-			cyan_wrt_world_calc.setIdentity(); cyan_wrt_world_calc.setOrigin(P_cyan_wrt_world);//cyan
-			purple_wrt_world_calc.setIdentity(); purple_wrt_world_calc.setOrigin(P_purple_wrt_world);//purple
+			red_wrt_world.setIdentity();
+			green_wrt_world.setIdentity();
+			cyan_wrt_world.setIdentity();
+			purple_wrt_world.setIdentity();
+			red_wrt_world_calc.setIdentity();
+			green_wrt_world_calc.setIdentity();
+			cyan_wrt_world_calc.setIdentity();
+			purple_wrt_world_calc.setIdentity();
 			
 			// from tracking
 			red_wrt_camera_calc.setIdentity();//red
@@ -1223,49 +1229,16 @@ class Controller
 			camera_wrt_referencem.setIdentity();// from mocap
 
 			/********** desired wrt world **********/
-			double zd_init = 1.5; //starting desired height
-			desired_radius = 1;// desired radius in meters
+			double zd_init = 1.0; //starting desired height
+			desired_radius = 1.0;// desired radius in meters
 			desired_period = 60;
 			desired_body_wrt_world.setOrigin(tf::Vector3(-1*desired_radius,0,zd_init));//start body back 1 m along x and up 2 m
-			tf::Matrix3x3 R_desired_body_wrt_world(1,0,0,
-												   0,1,0,
-												   0,0,1);//rotation for the body, initially aligned with world
-			tf::Quaternion Q_desired_body_wrt_world; R_desired_body_wrt_world.getRotation(Q_desired_body_wrt_world);// get rotation as a quaternion
-			desired_body_wrt_world.setRotation(Q_desired_body_wrt_world);// set the initial body transform rotation
-			desired_wrt_world.setOrigin(desired_body_wrt_world.getOrigin());// desired camera has same origin as the body, no actual length for the virtual body
-			desired_wrt_world.setRotation(desired_body_wrt_world.getRotation()*camera_wrt_body_init.getRotation());;// set the initial rotation of the camera, its the body_wrt_world*camera_wrt_body_init
-			//tf::Vector3 wd_body_temp = tf::Vector3(0,0,2*M_PIl/desired_period);// desired angular velocity of the body
-			//tf::Vector3 vd_body_temp = tf::Vector3(0,-1*wd_body_temp.getZ()*desired_radius,0);// desired linear velocity of the body
-			tf::Vector3 wd_body_temp = tf::Vector3(0,0,0);// desired angular velocity of the body
-			tf::Vector3 vd_body_temp = tf::Vector3(0,0,0);// desired linear velocity of the body
+			R_desired_body_wrt_world.setValue(1,0,0,
+											  0,1,0,
+											  0,0,1);//rotation for the body, initially aligned with world
 			
-			// desired camera linear velocity is vcd =  q_cam_wrt_body.inverse()*vd body_temp*q_cam_wrt_body
-			tf::Quaternion vcd_body_temp = ((camera_wrt_body_init.getRotation().inverse())*tf::Quaternion(vd_body_temp.getX(), vd_body_temp.getY(), vd_body_temp.getZ(), 0)) * camera_wrt_body_init.getRotation();
-			vcd = tf::Vector3(vcd_body_temp.getX(), vcd_body_temp.getY(), vcd_body_temp.getZ());
-			// desired angular velocity of the camera is wcd = q_cam_wrt_body.inverse() * wd_body_temp * q_cam_wrt_body
-			tf::Quaternion wcd_temp = ((camera_wrt_body_init.getRotation().inverse()) * tf::Quaternion(wd_body_temp.getX(), wd_body_temp.getY(), wd_body_temp.getZ(), 0)) * camera_wrt_body_init.getRotation();
-			wcd.setValue(wcd_temp.getX(), wcd_temp.getY(), wcd_temp.getZ());
-			wcd_cv = cv::Mat::zeros(3,1,CV_64F);
-			wcd_cv.at<double>(0,0) = wcd.getX(); wcd_cv.at<double>(1,0) = wcd.getY(); wcd_cv.at<double>(2,0) = wcd.getZ();
 			
-			/********** pixels wrt desired  **********/
-			tf::Vector3 temp_v;
-			tf::Quaternion temp_Q;
-			temp_v = P_red_wrt_world-desired_wrt_world.getOrigin(); temp_Q = ((desired_wrt_world.getRotation().inverse())*tf::Quaternion(temp_v.getX(),temp_v.getY(),temp_v.getZ(),0.0))*desired_wrt_world.getRotation(); mrd_bar = tf::Vector3(temp_Q.getX(),temp_Q.getY(),temp_Q.getZ()); // red
-			temp_v = P_green_wrt_world-desired_wrt_world.getOrigin(); temp_Q = ((desired_wrt_world.getRotation().inverse())*tf::Quaternion(temp_v.getX(),temp_v.getY(),temp_v.getZ(),0.0))*desired_wrt_world.getRotation(); mgd_bar = tf::Vector3(temp_Q.getX(),temp_Q.getY(),temp_Q.getZ()); // green
-			temp_v = P_cyan_wrt_world-desired_wrt_world.getOrigin(); temp_Q = ((desired_wrt_world.getRotation().inverse())*tf::Quaternion(temp_v.getX(),temp_v.getY(),temp_v.getZ(),0.0))*desired_wrt_world.getRotation(); mcd_bar = tf::Vector3(temp_Q.getX(),temp_Q.getY(),temp_Q.getZ()); // cyan
-			temp_v = P_purple_wrt_world-desired_wrt_world.getOrigin(); temp_Q = ((desired_wrt_world.getRotation().inverse())*tf::Quaternion(temp_v.getX(),temp_v.getY(),temp_v.getZ(),0.0))*desired_wrt_world.getRotation(); mpd_bar = tf::Vector3(temp_Q.getX(),temp_Q.getY(),temp_Q.getZ()); // purple
-			prd = A*((1/mrd_bar.getZ())*mrd_bar); pgd = A*((1/mgd_bar.getZ())*mgd_bar); pcd = A*((1/mcd_bar.getZ())*mcd_bar); ppd = A*((1/mpd_bar.getZ())*mpd_bar);// camera points as pixels
-			//alpha_red_d = red_wrt_reference.getOrigin().getZ()/mrd_bar.getZ();
-			desired_pixels.pr.x = prd.getX(); desired_pixels.pr.x = prd.getY(); desired_pixels.pr.x = prd.getZ();//red
-			desired_pixels.pg.x = pgd.getX(); desired_pixels.pg.x = pgd.getY(); desired_pixels.pg.x = pgd.getZ();//green
-			desired_pixels.pc.x = pcd.getX(); desired_pixels.pc.x = pcd.getY(); desired_pixels.pc.x = pcd.getZ();//cyan
-			desired_pixels.pp.x = ppd.getX(); desired_pixels.pp.x = ppd.getY(); desired_pixels.pp.x = ppd.getZ();//purple
-			desired_pixels_pub.publish(desired_pixels);
 			
-			/********* update time *********/
-			last_time = ros::Time::now();
-			last_timem = ros::Time::now();
 			// initializing the constant part of Lv
 			for (int ii = 0; ii < 3; ii++)
 			{	
@@ -1306,8 +1279,7 @@ class Controller
 				Uvar_samplesm.push_back(tf::Vector3(0,0,0));
 			}
 			
-			last_time_d = last_time;//desired last time
-			start_time_d = last_time;//starting time
+			
 			
 			/********* marker **********/
 			// from tracking
@@ -1476,17 +1448,16 @@ class Controller
 		}
 		
 		/********** callback for the mocap decomp node **********/
-		void mocap_decomp_callback()
+		void mocap_decomp_callback(bool update_track, bool update_mocap)
 		{
-			current_timem = ros::Time::now();
 			// get the image wrt body
 			try
 			{
 				tf::StampedTransform camera_wrt_body_temp;
-				listener.waitForTransform("bebop", "bebop_image", current_timem, ros::Duration(1.0));
-				listener.lookupTransform("bebop", "bebop_image", current_timem, camera_wrt_body_temp);
+				listener.waitForTransform("bebop", "bebop_image", ros::Time(0), ros::Duration(1.0));
+				listener.lookupTransform("bebop", "bebop_image", ros::Time(0), camera_wrt_body_temp);
 				camera_wrt_body = camera_wrt_body_temp;
-				
+				current_timem = camera_wrt_body_temp.stamp_;
 			}
 			catch (tf::TransformException ex)
 			{
@@ -1498,12 +1469,15 @@ class Controller
 				if (first_runm)
 				{
 					first_runm = false;
-					start_timem = ros::Time::now();
+					start_timem = current_timem;
 					last_timem = current_timem;
 				}
 				
 				try
 				{
+					
+					//std::cout << "1: " << ros::Time::now() - start_timem << std::endl;
+					
 					// sending static transforms
 					br.sendTransform(tf::StampedTransform(reference_wrt_world,current_timem,"world", "reference_image"));
 					br.sendTransform(tf::StampedTransform(red_wrt_world, current_timem, "world", "red_wrt_world"));
@@ -1513,10 +1487,10 @@ class Controller
 					
 					/******** updating the camera_wrt_reference from mocap **********/
 					tf::StampedTransform camera_wrt_reference_calc_temp;
-					listener.waitForTransform("reference_image", "bebop_image", current_time, ros::Duration(1.0));
-					listener.lookupTransform("reference_image", "bebop_image", current_time, camera_wrt_reference_calc_temp);
+					listener.waitForTransform("reference_image", "bebop_image", current_timem, ros::Duration(1.0));
+					listener.lookupTransform("reference_image", "bebop_image", current_timem, camera_wrt_reference_calc_temp);
 					camera_wrt_reference.setOrigin(camera_wrt_reference_calc_temp.getOrigin());
-					br.sendTransform(tf::StampedTransform(camera_wrt_reference, current_time, "reference_image", "camera_image_calc"));
+					br.sendTransform(tf::StampedTransform(camera_wrt_reference, current_timem, "reference_image", "camera_image_calc"));
 					camera_wrt_referencem = camera_wrt_reference_calc_temp;//used for mocap part
 					Q_cfm = camera_wrt_referencem.getRotation();//rotation of camera wrt reference
 					Q_cf_negatedm = tf::Quaternion(-Q_cfm.getX(),-Q_cfm.getY(),-Q_cfm.getZ(),-Q_cfm.getW()); // getting the negated version of the quaternion for the check
@@ -1538,32 +1512,49 @@ class Controller
 					
 					/******** updating the true feature point locations and pixels using the mocap **********/
 					tf::StampedTransform mim_bar_temp;//temp to hold the pixel wrt camera from the mocap for each of the four colors
-					listener.waitForTransform("bebop_image", "red_wrt_world", current_time, ros::Duration(1.0));
-					listener.lookupTransform("bebop_image", "red_wrt_world", current_time, mim_bar_temp);
+					listener.waitForTransform("bebop_image", "red_wrt_world", current_timem, ros::Duration(1.0));
+					listener.lookupTransform("bebop_image", "red_wrt_world", current_timem, mim_bar_temp);
 					red_wrt_cameram = mim_bar_temp;//red from mocap
 					mrm_bar = red_wrt_cameram.getOrigin();
-					listener.waitForTransform("bebop_image", "green_wrt_world", current_time, ros::Duration(1.0));
-					listener.lookupTransform("bebop_image", "green_wrt_world", current_time, mim_bar_temp);
+					listener.waitForTransform("bebop_image", "green_wrt_world", current_timem, ros::Duration(1.0));
+					listener.lookupTransform("bebop_image", "green_wrt_world", current_timem, mim_bar_temp);
 					green_wrt_cameram = mim_bar_temp;//green from mocap
 					mgm_bar = green_wrt_cameram.getOrigin();
-					listener.waitForTransform("bebop_image", "cyan_wrt_world", current_time, ros::Duration(1.0));
-					listener.lookupTransform("bebop_image", "cyan_wrt_world", current_time, mim_bar_temp);
+					listener.waitForTransform("bebop_image", "cyan_wrt_world", current_timem, ros::Duration(1.0));
+					listener.lookupTransform("bebop_image", "cyan_wrt_world", current_timem, mim_bar_temp);
 					cyan_wrt_cameram = mim_bar_temp;//cyan from mocap
 					mcm_bar = cyan_wrt_cameram.getOrigin();
-					listener.waitForTransform("bebop_image", "purple_wrt_world", current_time, ros::Duration(1.0));
-					listener.lookupTransform("bebop_image", "purple_wrt_world", current_time, mim_bar_temp);
+					listener.waitForTransform("bebop_image", "purple_wrt_world", current_timem, ros::Duration(1.0));
+					listener.lookupTransform("bebop_image", "purple_wrt_world", current_timem, mim_bar_temp);
 					purple_wrt_cameram = mim_bar_temp;//purple from mocap
 					mpm_bar = purple_wrt_cameram.getOrigin();
 					mrm = mrm_bar/mrm_bar.getZ(); mgm = mgm_bar/mgm_bar.getZ(); mcm = mcm_bar/mcm_bar.getZ(); mpm = mpm_bar/mpm_bar.getZ();//normalized
 					prm = A*mrm; pgm = A*mgm; pcm = A*mcm; ppm = A*mpm; //pixels
 					alpha_redm = red_wrt_reference.getOrigin().getZ()/mrm_bar.getZ();//alpha red from mocap
+					
+					if (std::isnan(alpha_redm) || alpha_redm <= 0)
+					{
+						std::cout << "\n\n\n\nalpha_redm: " << alpha_redm << std::endl;
+						std::cout << "red_wrt_cameram x: " << red_wrt_cameram.getOrigin().getX() << " y: " << red_wrt_cameram.getOrigin().getY() << " z: " << red_wrt_cameram.getOrigin().getZ() << std::endl;
+						std::cout << "mrm_bar x: " << mrm_bar.getX() << " y: " << mrm_bar.getY() << " z: " << mrm_bar.getZ() << std::endl;
+						std::cout << "mrm x: " << mrm.getX() << " y: " << mrm.getY() << " z: " << mrm.getZ() << std::endl;
+						std::cout << "prm x: " << prm.getX() << " y: " << prm.getY() << " z: " << prm.getZ() << std::endl;
+						std::cout << "red_wrt_reference x: " << red_wrt_reference.getOrigin().getX() << " y: " << red_wrt_reference.getOrigin().getY() << " z: " << red_wrt_reference.getOrigin().getZ() << std::endl << std::endl << std::endl ;
+						
+					}
+				
+					//std::cout << "2: " << ros::Time::now() - start_timem << std::endl;
+				
+					output_velocity_command(update_track, update_mocap);
 				}
 				catch (tf::TransformException ex)
 				{
 					std::cout << "failed to do transform m" << std::endl;
 				}
 				
+				
 			}
+			
 		}
 		
 		/********** callback for the decomp node **********/
@@ -1643,7 +1634,7 @@ class Controller
 				if (first_run)
 				{
 					first_run = false;
-					start_time = msg.header.stamp;
+					start_time = current_time;
 					last_time = current_time;
 				}
 				
@@ -1676,6 +1667,13 @@ class Controller
 					br.sendTransform(tf::StampedTransform(cyan_wrt_world, current_time, "world", "cyan_wrt_world"));
 					br.sendTransform(tf::StampedTransform(purple_wrt_world, current_time, "world", "purple_wrt_world"));
 					
+					/******** updating the camera_wrt_reference from mocap **********/
+					tf::StampedTransform camera_wrt_reference_calc_temp;
+					listener.waitForTransform("reference_image", "bebop_image", current_time, ros::Duration(1.0));
+					listener.lookupTransform("reference_image", "bebop_image", current_time, camera_wrt_reference_calc_temp);
+					camera_wrt_reference.setOrigin(camera_wrt_reference_calc_temp.getOrigin());
+					br.sendTransform(tf::StampedTransform(camera_wrt_reference, current_time, "reference_image", "camera_image_calc"));
+					
 					//estimating the position of the red green cyan and purple features
 					mr = A.inverse()*pr;
 					mg = A.inverse()*pg;
@@ -1685,11 +1683,17 @@ class Controller
 					mg_bar = mg*(zr_star_hat/alpha_green);
 					mc_bar = mc*(zr_star_hat/alpha_cyan);
 					mp_bar = mp*(zr_star_hat/alpha_purple);
+					std::cout << "\n\n\n\nalpha red" << alpha_red << std::endl;
+					std::cout << "pr u: " << pr.getX() << " v: " << pr.getY() << std::endl;
+					std::cout << "mr x: " << mr.getX() << " y: " << mr.getY() << " z: " << mr.getZ() << std::endl;
+					std::cout << "mr_bar x: " << mr.getX() << " y: " << mr.getY() << " z: " << mr.getZ() << std::endl;
 					
+					//std::cout << "15: " << ros::Time::now() - start_timem << std::endl;
 					tf::StampedTransform camera_wrt_world_calc_temp;
 					listener.waitForTransform("world", "camera_image_calc", current_time, ros::Duration(1.0));
 					listener.lookupTransform("world", "camera_image_calc", current_time, camera_wrt_world_calc_temp);
 					camera_wrt_world_calc = camera_wrt_world_calc_temp;
+					//std::cout << "16: " << ros::Time::now() - start_timem << std::endl;
 					
 					//red_wrt_world_calc = camera_wrt_world_calc*tf::Transform(camera_wrt_world_calc.getRotation().inverse(),mr_bar);
 					//green_wrt_world_calc = camera_wrt_world_calc*tf::Transform(camera_wrt_world_calc.getRotation().inverse(),mg_bar);
@@ -1716,9 +1720,20 @@ class Controller
 					std::cout << "failed to do transform" << std::endl;
 				}
 				
+				//std::cout << "end of decomp callback" << std::endl;
+				new_decomp_recieved = true;//
 			}
-			//std::cout << "end of decomp callback" << std::endl;
-			new_decomp_recieved = true;//
+			else
+			{
+				new_decomp_recieved = false;//
+				velocity_command.linear.x = 0;
+				velocity_command.linear.y = 0;
+				velocity_command.linear.z = 0;
+				velocity_command.angular.x = 0;
+				velocity_command.angular.y = 0;
+				velocity_command.angular.z = 0;
+			}
+			
 		}
 		
 		/********** callback for the pose from the mocap **********/
@@ -1745,7 +1760,60 @@ class Controller
 			{
 				try
 				{
-					// setting the reference
+					// read turtle bot poses
+					tf::StampedTransform turtle_wrt_world_temp;
+					listener.waitForTransform("world", "ugv1", ros::Time(0), ros::Duration(1.0));
+					listener.lookupTransform("world", "ugv1", ros::Time(0), turtle_wrt_world_temp);
+					red_wrt_world = turtle_wrt_world_temp; // turtle 1 is red
+					listener.waitForTransform("world", "ugv2", ros::Time(0), ros::Duration(1.0));
+					listener.lookupTransform("world", "ugv2", ros::Time(0), turtle_wrt_world_temp);
+					green_wrt_world = turtle_wrt_world_temp; // turtle 2 is green
+					listener.waitForTransform("world", "ugv3", ros::Time(0), ros::Duration(1.0));
+					listener.lookupTransform("world", "ugv3", ros::Time(0), turtle_wrt_world_temp);
+					cyan_wrt_world = turtle_wrt_world_temp; // turtle 3 is cyan
+					listener.waitForTransform("world", "ugv4", ros::Time(0), ros::Duration(1.0));
+					listener.lookupTransform("world", "ugv4", ros::Time(0), turtle_wrt_world_temp);
+					purple_wrt_world = turtle_wrt_world_temp; // turtle 4 is purple
+					
+					/********* update time *********/
+					last_time = ros::Time::now();
+					last_timem = last_time;
+					last_time_d = last_time;//desired last time
+					
+					/********** initialize the desired  **********/
+					tf::Quaternion Q_desired_body_wrt_world; R_desired_body_wrt_world.getRotation(Q_desired_body_wrt_world);// get rotation as a quaternion
+					desired_body_wrt_world.setRotation(Q_desired_body_wrt_world);// set the initial body transform rotation
+					desired_wrt_world.setOrigin(desired_body_wrt_world.getOrigin());// desired camera has same origin as the body, no actual length for the virtual body
+					desired_wrt_world.setRotation(desired_body_wrt_world.getRotation()*camera_wrt_body_init.getRotation());;// set the initial rotation of the camera, its the body_wrt_world*camera_wrt_body_init
+					tf::Vector3 wd_body_temp = tf::Vector3(0,0,2*M_PIl/desired_period);// desired angular velocity of the body
+					tf::Vector3 vd_body_temp = tf::Vector3(0,-1*wd_body_temp.getZ()*desired_radius,0);// desired linear velocity of the body
+					//tf::Vector3 wd_body_temp = tf::Vector3(0,0,0);// desired angular velocity of the body
+					//tf::Vector3 vd_body_temp = tf::Vector3(0,0,0);// desired linear velocity of the body
+					
+					// desired camera linear velocity is vcd =  q_cam_wrt_body.inverse()*vd body_temp*q_cam_wrt_body
+					tf::Quaternion vcd_body_temp = ((camera_wrt_body_init.getRotation().inverse())*tf::Quaternion(vd_body_temp.getX(), vd_body_temp.getY(), vd_body_temp.getZ(), 0)) * camera_wrt_body_init.getRotation();
+					vcd = tf::Vector3(vcd_body_temp.getX(), vcd_body_temp.getY(), vcd_body_temp.getZ());
+					// desired angular velocity of the camera is wcd = q_cam_wrt_body.inverse() * wd_body_temp * q_cam_wrt_body
+					tf::Quaternion wcd_temp = ((camera_wrt_body_init.getRotation().inverse()) * tf::Quaternion(wd_body_temp.getX(), wd_body_temp.getY(), wd_body_temp.getZ(), 0)) * camera_wrt_body_init.getRotation();
+					wcd.setValue(wcd_temp.getX(), wcd_temp.getY(), wcd_temp.getZ());
+					wcd_cv = cv::Mat::zeros(3,1,CV_64F);
+					wcd_cv.at<double>(0,0) = wcd.getX(); wcd_cv.at<double>(1,0) = wcd.getY(); wcd_cv.at<double>(2,0) = wcd.getZ();
+					/********** pixels wrt desired  **********/
+					tf::Vector3 temp_v;
+					tf::Quaternion temp_Q;
+					temp_v = red_wrt_world.getOrigin()-desired_wrt_world.getOrigin(); temp_Q = ((desired_wrt_world.getRotation().inverse())*tf::Quaternion(temp_v.getX(),temp_v.getY(),temp_v.getZ(),0.0))*desired_wrt_world.getRotation(); mrd_bar = tf::Vector3(temp_Q.getX(),temp_Q.getY(),temp_Q.getZ()); // red
+					temp_v = green_wrt_world.getOrigin()-desired_wrt_world.getOrigin(); temp_Q = ((desired_wrt_world.getRotation().inverse())*tf::Quaternion(temp_v.getX(),temp_v.getY(),temp_v.getZ(),0.0))*desired_wrt_world.getRotation(); mgd_bar = tf::Vector3(temp_Q.getX(),temp_Q.getY(),temp_Q.getZ()); // green
+					temp_v = cyan_wrt_world.getOrigin()-desired_wrt_world.getOrigin(); temp_Q = ((desired_wrt_world.getRotation().inverse())*tf::Quaternion(temp_v.getX(),temp_v.getY(),temp_v.getZ(),0.0))*desired_wrt_world.getRotation(); mcd_bar = tf::Vector3(temp_Q.getX(),temp_Q.getY(),temp_Q.getZ()); // cyan
+					temp_v = purple_wrt_world.getOrigin()-desired_wrt_world.getOrigin(); temp_Q = ((desired_wrt_world.getRotation().inverse())*tf::Quaternion(temp_v.getX(),temp_v.getY(),temp_v.getZ(),0.0))*desired_wrt_world.getRotation(); mpd_bar = tf::Vector3(temp_Q.getX(),temp_Q.getY(),temp_Q.getZ()); // purple
+					prd = A*((1/mrd_bar.getZ())*mrd_bar); pgd = A*((1/mgd_bar.getZ())*mgd_bar); pcd = A*((1/mcd_bar.getZ())*mcd_bar); ppd = A*((1/mpd_bar.getZ())*mpd_bar);// camera points as pixels
+					//alpha_red_d = red_wrt_reference.getOrigin().getZ()/mrd_bar.getZ();
+					desired_pixels.pr.x = prd.getX(); desired_pixels.pr.x = prd.getY(); desired_pixels.pr.x = prd.getZ();//red
+					desired_pixels.pg.x = pgd.getX(); desired_pixels.pg.x = pgd.getY(); desired_pixels.pg.x = pgd.getZ();//green
+					desired_pixels.pc.x = pcd.getX(); desired_pixels.pc.x = pcd.getY(); desired_pixels.pc.x = pcd.getZ();//cyan
+					desired_pixels.pp.x = ppd.getX(); desired_pixels.pp.x = ppd.getY(); desired_pixels.pp.x = ppd.getZ();//purple
+					desired_pixels_pub.publish(desired_pixels);
+			
+					/********** setting the reference  **********/
 					tf::StampedTransform reference_wrt_world_temp;
 					listener.waitForTransform("world", "bebop_image", last_body_pose_time, ros::Duration(1.0));
 					listener.lookupTransform("world", "bebop_image", last_body_pose_time, reference_wrt_world_temp);
@@ -1764,7 +1832,8 @@ class Controller
 					
 					std::cout << "reference red z: " << red_wrt_reference.getOrigin().getZ() << std::endl;
 					// setting the desired
-					
+					zr_star_hat = 2*red_wrt_reference.getOrigin().getZ();
+					zr_star_hatm = 2*red_wrt_reference.getOrigin().getZ();
 					
 					start_controller = true;
 				}
@@ -1777,7 +1846,7 @@ class Controller
 			// if the bumper is pulled and it is not in autonomous mode will put it in autonomous mode
 			// if the bumper is pulled and it is in autonomous mode will take it out of autonomous mode
 			start_autonomous = lb_button_teleop_b4 > 0;
-			l_trigger_a5 = msg.axes[5];
+			l_trigger_a5 = msg.axes[2];
 			//std::cout << "controller is started: " << start_controller << std::endl;
 			//std::cout << "autonomous mode is: " << start_autonomous << std::endl;
 			
@@ -1843,10 +1912,10 @@ class Controller
 				/********** update pixels wrt desired  **********/
 				tf::Vector3 temp_v;
 				tf::Quaternion temp_Q;
-				temp_v = P_red_wrt_world-desired_wrt_world.getOrigin(); temp_Q = ((desired_wrt_world.getRotation().inverse())*tf::Quaternion(temp_v.getX(),temp_v.getY(),temp_v.getZ(),0.0))*desired_wrt_world.getRotation(); mrd_bar = tf::Vector3(temp_Q.getX(),temp_Q.getY(),temp_Q.getZ()); // red
-				temp_v = P_green_wrt_world-desired_wrt_world.getOrigin(); temp_Q = ((desired_wrt_world.getRotation().inverse())*tf::Quaternion(temp_v.getX(),temp_v.getY(),temp_v.getZ(),0.0))*desired_wrt_world.getRotation(); mgd_bar = tf::Vector3(temp_Q.getX(),temp_Q.getY(),temp_Q.getZ()); // green
-				temp_v = P_cyan_wrt_world-desired_wrt_world.getOrigin(); temp_Q = ((desired_wrt_world.getRotation().inverse())*tf::Quaternion(temp_v.getX(),temp_v.getY(),temp_v.getZ(),0.0))*desired_wrt_world.getRotation(); mcd_bar = tf::Vector3(temp_Q.getX(),temp_Q.getY(),temp_Q.getZ()); // cyan
-				temp_v = P_purple_wrt_world-desired_wrt_world.getOrigin(); temp_Q = ((desired_wrt_world.getRotation().inverse())*tf::Quaternion(temp_v.getX(),temp_v.getY(),temp_v.getZ(),0.0))*desired_wrt_world.getRotation(); mpd_bar = tf::Vector3(temp_Q.getX(),temp_Q.getY(),temp_Q.getZ()); // purple
+				temp_v = red_wrt_world.getOrigin()-desired_wrt_world.getOrigin(); temp_Q = ((desired_wrt_world.getRotation().inverse())*tf::Quaternion(temp_v.getX(),temp_v.getY(),temp_v.getZ(),0.0))*desired_wrt_world.getRotation(); mrd_bar = tf::Vector3(temp_Q.getX(),temp_Q.getY(),temp_Q.getZ()); // red
+				temp_v = green_wrt_world.getOrigin()-desired_wrt_world.getOrigin(); temp_Q = ((desired_wrt_world.getRotation().inverse())*tf::Quaternion(temp_v.getX(),temp_v.getY(),temp_v.getZ(),0.0))*desired_wrt_world.getRotation(); mgd_bar = tf::Vector3(temp_Q.getX(),temp_Q.getY(),temp_Q.getZ()); // green
+				temp_v = cyan_wrt_world.getOrigin()-desired_wrt_world.getOrigin(); temp_Q = ((desired_wrt_world.getRotation().inverse())*tf::Quaternion(temp_v.getX(),temp_v.getY(),temp_v.getZ(),0.0))*desired_wrt_world.getRotation(); mcd_bar = tf::Vector3(temp_Q.getX(),temp_Q.getY(),temp_Q.getZ()); // cyan
+				temp_v = purple_wrt_world.getOrigin()-desired_wrt_world.getOrigin(); temp_Q = ((desired_wrt_world.getRotation().inverse())*tf::Quaternion(temp_v.getX(),temp_v.getY(),temp_v.getZ(),0.0))*desired_wrt_world.getRotation(); mpd_bar = tf::Vector3(temp_Q.getX(),temp_Q.getY(),temp_Q.getZ()); // purple
 				prd = A*((1/mrd_bar.getZ())*mrd_bar); pgd = A*((1/mgd_bar.getZ())*mgd_bar); pcd = A*((1/mcd_bar.getZ())*mcd_bar); ppd = A*((1/mpd_bar.getZ())*mpd_bar);// camera points as pixels
 				
 				//std::cout << "prd:\n x: " << prd.getX() << " y: " << prd.getY() << " z: " << prd.getZ() << std::endl;
@@ -1922,15 +1991,15 @@ class Controller
 				br.sendTransform(tf::StampedTransform(green_wrt_des_camera_calc, current_time, "desired_image", "green_wrt_des"));
 				br.sendTransform(tf::StampedTransform(cyan_wrt_des_camera_calc, current_time, "desired_image", "cyan_wrt_des"));
 				br.sendTransform(tf::StampedTransform(purple_wrt_des_camera_calc, current_time, "desired_image", "purple_wrt_des"));
+				
+				//last_time_d = current_time_d; // update in ped_dot instead
+				geometry_msgs::Pose desired_out;		
+				desired_out.position.x = desired_wrt_world.getOrigin().getX(); desired_out.position.y = desired_wrt_world.getOrigin().getY(); desired_out.position.z = desired_wrt_world.getOrigin().getZ();
+				desired_out.orientation.x = desired_wrt_world.getRotation().getX(); desired_out.orientation.y = desired_wrt_world.getRotation().getY(); desired_out.orientation.z = desired_wrt_world.getRotation().getZ(); desired_out.orientation.w = desired_wrt_world.getRotation().getW();
+				//desired_out.position.x = desired_wrt_reference.getOrigin().getX(); desired_out.position.y = desired_wrt_reference.getOrigin().getY(); desired_out.position.z = desired_wrt_reference.getOrigin().getZ();
+				//desired_out.orientation.x = desired_wrt_reference.getRotation().getX(); desired_out.orientation.y = desired_wrt_reference.getRotation().getY(); desired_out.orientation.z = desired_wrt_reference.getRotation().getZ(); desired_out.orientation.w = desired_wrt_reference.getRotation().getW();
+				desired_pose_pub.publish(desired_out);
 			}
-			
-			last_time_d = current_time_d;
-			geometry_msgs::Pose desired_out;		
-			desired_out.position.x = desired_wrt_world.getOrigin().getX(); desired_out.position.y = desired_wrt_world.getOrigin().getY(); desired_out.position.z = desired_wrt_world.getOrigin().getZ();
-			desired_out.orientation.x = desired_wrt_world.getRotation().getX(); desired_out.orientation.y = desired_wrt_world.getRotation().getY(); desired_out.orientation.z = desired_wrt_world.getRotation().getZ(); desired_out.orientation.w = desired_wrt_world.getRotation().getW();
-			//desired_out.position.x = desired_wrt_reference.getOrigin().getX(); desired_out.position.y = desired_wrt_reference.getOrigin().getY(); desired_out.position.z = desired_wrt_reference.getOrigin().getZ();
-			//desired_out.orientation.x = desired_wrt_reference.getRotation().getX(); desired_out.orientation.y = desired_wrt_reference.getRotation().getY(); desired_out.orientation.z = desired_wrt_reference.getRotation().getZ(); desired_out.orientation.w = desired_wrt_reference.getRotation().getW();
-			desired_pose_pub.publish(desired_out);
 		}
 		
 		/********** velocity command from tracking **********/
@@ -1986,7 +2055,7 @@ class Controller
 		{
 			update_pixels(update_track, update_mocap);// update the pixels and everything directly depending on them
 			get_Lv(update_track, update_mocap);// getting Lvs
-			get_Lvd(update_track, update_mocap);// getting Lvd
+			get_Lvd();// getting Lvd
 			get_ev(update_track, update_mocap);// getting ev
 			get_phi(update_track, update_mocap);// getting little phi
 			
@@ -1994,7 +2063,8 @@ class Controller
 			{
 				// from tracking
 				tf::Vector3 vc_term1_temp = (1/alpha_red)*(Lv.inverse()*(Kv*ev));// term 1 for the vc calculation
-				tf::Vector3 vc_term2_temp = (1/alpha_red)*(Lv.inverse()*(phi*red_wrt_reference.getOrigin().getZ()));// term 2 for the vc calculation
+				//tf::Vector3 vc_term2_temp = (1/alpha_red)*(Lv.inverse()*(phi*red_wrt_reference.getOrigin().getZ()));// term 2 for the vc calculation
+				tf::Vector3 vc_term2_temp = (1/alpha_red)*(Lv.inverse()*(phi*zr_star_hat));// term 2 for the vc calculation
 				vc = vc_term1_temp + vc_term2_temp;// sum them together for vc
 				std::cout << "pe:\n x: " << pe.getX() << " y: " << pe.getY() << " z: " << pe.getZ() << std::endl;
 				std::cout << "ped:\n x: " << ped.getX() << " y: " << ped.getY() << " z: " << ped.getZ() << std::endl;
@@ -2008,7 +2078,8 @@ class Controller
 			{
 				// from mocap
 				tf::Vector3 vc_term1_tempm = (1/alpha_redm)*(Lvm.inverse()*(Kv*evm));// term 1 for the vc calculation
-				tf::Vector3 vc_term2_tempm = (1/alpha_redm)*(Lvm.inverse()*(phim*red_wrt_reference.getOrigin().getZ()));// term 2 for the vc calculation
+				//tf::Vector3 vc_term2_tempm = (1/alpha_redm)*(Lvm.inverse()*(phim*red_wrt_reference.getOrigin().getZ()));// term 2 for the vc calculation
+				tf::Vector3 vc_term2_tempm = (1/alpha_redm)*(Lvm.inverse()*(phim*zr_star_hatm));// term 2 for the vc calculation
 				vcm = vc_term1_tempm + vc_term2_tempm;// sum them together for vc
 				std::cout << "pem:\n x: " << pem.getX() << " y: " << pem.getY() << " z: " << pem.getZ() << std::endl;
 				std::cout << "ped:\n x: " << ped.getX() << " y: " << ped.getY() << " z: " << ped.getZ() << std::endl;
@@ -2069,7 +2140,7 @@ class Controller
 		}
 		
 		/********** calculating the value for Lvd **********/
-		void get_Lvd(bool update_track, bool update_mocap)
+		void get_Lvd()
 		{	
 			mrd_mat.setValue(1, 0, -1*mrd.getX(),
 							 0, 1, -1*mrd.getY(),
@@ -2082,60 +2153,100 @@ class Controller
 		{
 			ped.setValue(prd.getX(), prd.getY(), -1*std::log(alpha_red_d)); // getting ped
 			
-			// from tracking
-			pe.setValue(pr.getX(), pr.getY(), -1*std::log(alpha_red)); // getting pe
-			ev = pe - ped; // ev calc
+			if (update_track)
+			{
+				// from tracking
+				pe.setValue(pr.getX(), pr.getY(), -1*std::log(alpha_red)); // getting pe
+				ev = pe - ped; // ev calc
+			}
+			if (update_mocap)
+			{
+				// from mocap
+				pem.setValue(prm.getX(), prm.getY(), -1*std::log(alpha_redm)); // getting pe
+				evm = pem - ped; // ev calc
+			}
 			
-			// from mocap
-			pem.setValue(prm.getX(), prm.getY(), -1*std::log(alpha_redm)); // getting pe
-			evm = pem - ped; // ev calc
 		}
 		
 		/********** Calculate the value for ph **********/
 		void get_phi(bool update_track, bool update_mocap)
 		{
-				get_ped_dot(); // getting ped_dot
-				
+			get_ped_dot(); // getting ped_dot
+			
+			if (update_track)
+			{
 				// from tracking
 				phi_term1 = (Lv*ss_mr)*wc; // getting the first term of the phi equation
 				phi = phi_term1 - ped_dot;// subtracting from phi term1 with ped_dot for phi
-				std::cout << "wc:\n x: " << wc.getX() << " y: " << wc.getY() << " z: " << wc.getZ() << std::endl;
-				std::cout << "phi term 1:\n x: " << phi_term1.getX() << " y: " << phi_term1.getY() << " z: " << phi_term1.getZ() << std::endl;
-				std::cout << "phi term 2, ped_dot:\n x: " << ped_dot.getX() << " y: " << ped_dot.getY() << " z: " << ped_dot.getZ() << std::endl;
-				
+				//std::cout << "wc:\n x: " << wc.getX() << " y: " << wc.getY() << " z: " << wc.getZ() << std::endl;
+				//std::cout << "phi term 1:\n x: " << phi_term1.getX() << " y: " << phi_term1.getY() << " z: " << phi_term1.getZ() << std::endl;
+				//std::cout << "phi term 2, ped_dot:\n x: " << ped_dot.getX() << " y: " << ped_dot.getY() << " z: " << ped_dot.getZ() << std::endl;
+			}
+			if (update_mocap)
+			{
 				// from mocap
 				phi_term1m = (Lvm*ss_mrm)*wcm; // getting the first term of the phi equation
 				phim = phi_term1m - ped_dot; // subtracting from phi term1 with ped_dot for phi
+			}
+		
 		}
 		
 		/********** calculating the value for ped_dot **********/
 		void get_ped_dot()
 		{
-			ped_dot_term1 = (-1*alpha_red_d/red_wrt_reference.getOrigin().getZ())*(Lvd*vcd);// getting term 1 for the ped_dot equation
-			ped_dot_term2 = (Lvd*ss_mrd)*wcd;// getting term 2 for the ped_dot equation
-			ped_dot = ped_dot_term1 + ped_dot_term2;// ped_dot
+			//// calculated approximate
+			//ped_dot_term1 = (-1*alpha_red_d/red_wrt_reference.getOrigin().getZ())*(Lvd*vcd);// getting term 1 for the ped_dot equation
+			//ped_dot_term2 = (Lvd*ss_mrd)*wcd;// getting term 2 for the ped_dot equation
+			//ped_dot = ped_dot_term1 + ped_dot_term2;// ped_dot
+			
+			// numerical approximate
+			ped_dot_num = (1/(current_time_d - last_time_d).toSec())*(ped - ped_last);
+			std::cout << "ped dot x: "  << ped.getX() << " y: " << ped.getY() << " z: " << ped.getZ() << std::endl;
+			std::cout << "ped dot x: "  << ped_last.getX() << " y: " << ped_last.getY() << " z: " << ped_last.getZ() << std::endl;
+			std::cout << "time from last: " << (current_time_d - last_time_d).toSec() << std::endl;
+			ped_last = ped;
+			last_time_d = current_time_d;
+			ped_dot = ped_dot_num;
+			
+			geometry_msgs::Vector3 ped_dot_temp, ped_dot_num_temp;
+			//ped_dot_temp.x = ped_dot.getX(); ped_dot_temp.y = ped_dot.getY(); ped_dot_temp.z = ped_dot.getZ(); 
+			ped_dot_num_temp.x = ped_dot_num.getX(); ped_dot_num_temp.y = ped_dot_num.getY(); ped_dot_num_temp.z = ped_dot_num.getZ(); 
+			//ped_dot_pub.publish(ped_dot_temp);
+			ped_dot_num_pub.publish(ped_dot_num_temp);
+			
 		}
 	
 		/********** update the estimate for the reference zr_star_hat **********/
 		void update_zr_star_hat(bool update_track, bool update_mocap)
 		{
-			double time_from_last = current_time.toSec() - last_time.toSec();
-			calculate_zr_star_hat_dot();// calculate zr_star_hat_dot
+			calculate_zr_star_hat_dot(update_track, update_mocap);// calculate zr_star_hat_dot
 			
-			std::cout << "time from last: " << time_from_last << std::endl;
-			std::cout << "time from start: " << current_time.toSec() - start_time.toSec() << std::endl;
-			
-			// from tracking
-			zr_star_hat += zr_star_hat_dot*time_from_last;
-			std::cout << "zr star hat dot: " << zr_star_hat_dot << std::endl;
-			std::cout << "zr star hat: " << zr_star_hat << std::endl;
-			
-			// from mocap
-			zr_star_hatm += zr_star_hat_dotm*time_from_last;
-			std::cout << "zr star hat dot mocap: " << zr_star_hat_dot << std::endl;
-			std::cout << "zr star hat mocap: " << zr_star_hatm << std::endl;
+			if (update_track)
+			{
+				double time_from_last = current_time.toSec() - last_time.toSec();
+				//std::cout << "time from last: " << time_from_last << std::endl;
+				//std::cout << "time from start: " << current_time.toSec() - start_time.toSec() << std::endl;
+				
+				// from tracking
+				zr_star_hat += zr_star_hat_dot*time_from_last;
+				//std::cout << "zr star hat dot: " << zr_star_hat_dot << std::endl;
+				//std::cout << "zr star hat: " << zr_star_hat << std::endl;
+				z_tilde.data = red_wrt_reference.getOrigin().getZ() - zr_star_hat;
+				z_tilde_pub.publish(z_tilde);
+			}
+			if (update_mocap)
+			{
+				double time_from_lastm = current_timem.toSec() - last_timem.toSec();
+				// from mocap
+				zr_star_hatm += zr_star_hat_dotm*time_from_lastm;
+				//std::cout << "zr star hat dot mocap: " << zr_star_hat_dot << std::endl;
+				//std::cout << "zr star hat mocap: " << zr_star_hatm << std::endl;
+				z_tildem.data = red_wrt_reference.getOrigin().getZ() - zr_star_hatm;
+				z_tildem_pub.publish(z_tildem);
+			}
 			
 			// reference
+			std::cout << "zr star hat: " << zr_star_hat << std::endl;
 			std::cout << "zr star actual: " << red_wrt_reference.getOrigin().getZ() << std::endl;
 		}
 		
@@ -2143,117 +2254,158 @@ class Controller
 		void calculate_zr_star_hat_dot(bool update_track, bool update_mocap)
 		{
 			double time_from_begin = current_time.toSec() - start_time.toSec();
-			shift_sample_set(trapz_timestamps, time_from_begin);// update the time for trapz
+			double time_from_beginm = current_timem.toSec() - start_timem.toSec();
+			
+			if (update_track)
+			{
+				shift_sample_set(trapz_timestamps, time_from_begin);// update the time for trapz
+			}
+			if (update_mocap)
+			{
+				shift_sample_set(trapz_timestampsm, time_from_beginm);// update the time for trapz
+			}
+			
 			get_Ev(update_track, update_mocap);// get the new Ev
 			get_Phi(update_track, update_mocap);// get the new Phi
 			get_U(update_track, update_mocap);// get the new U
 			
-			// from tracking
-			Ev_minus_Phi = Ev - Phi;// Ev - Phi
-			Ev_minus_Phi_svd = Ev_minus_Phi.length2();// Ev - Phi, sum of square of each element
-			curr_Ev_minus_Phi_svd_min_iter = std::min_element(Evs_minus_Phis_svds.begin(),Evs_minus_Phis_svds.end());// finding the minimum value
-			curr_Ev_minus_Phi_svd_min_index = std::distance(Evs_minus_Phis_svds.begin(),curr_Ev_minus_Phi_svd_min_iter);// getting the index of the iterator
-			
-			// from mocap
-			Ev_minus_Phim = Evm - Phim;// Ev - Phi
-			Ev_minus_Phi_svdm = Ev_minus_Phim.length2();// Ev - Phi, sum of square of each element
-			curr_Ev_minus_Phi_svd_min_iterm = std::min_element(Evs_minus_Phis_svdsm.begin(),Evs_minus_Phis_svdsm.end());// finding the minimum value
-			curr_Ev_minus_Phi_svd_min_indexm = std::distance(Evs_minus_Phis_svdsm.begin(),curr_Ev_minus_Phi_svd_min_iterm);// getting the index of the iterator
-
-			if (time_from_begin > integration_window)
+			if (update_track)
 			{
 				// from tracking
-				// if the current norm is greater than the minimum norm of the history will remove the old min and add the new one to the end
-				if ( Ev_minus_Phi_svd > *curr_Ev_minus_Phi_svd_min_iter )
+				Ev_minus_Phi = Ev - Phi;// Ev - Phi
+				Ev_minus_Phi_svd = Ev_minus_Phi.length2();// Ev - Phi, sum of square of each element
+				curr_Ev_minus_Phi_svd_min_iter = std::min_element(Evs_minus_Phis_svds.begin(),Evs_minus_Phis_svds.end());// finding the minimum value
+				curr_Ev_minus_Phi_svd_min_index = std::distance(Evs_minus_Phis_svds.begin(),curr_Ev_minus_Phi_svd_min_iter);// getting the index of the iterator
+			
+				if (time_from_begin > integration_window)
 				{
-					// replace the previous min from the history
-					Evs_minus_Phis.at(curr_Ev_minus_Phi_svd_min_index) = Ev_minus_Phi;
-					Evs_minus_Phis_svds.at(curr_Ev_minus_Phi_svd_min_index) = Ev_minus_Phi_svd;
-					Us.at(curr_Ev_minus_Phi_svd_min_index) = U;
+					// from tracking
+					// if the current norm is greater than the minimum norm of the history will remove the old min and add the new one to the end
+					if ( Ev_minus_Phi_svd > *curr_Ev_minus_Phi_svd_min_iter )
+					{
+						// replace the previous min from the history
+						Evs_minus_Phis.at(curr_Ev_minus_Phi_svd_min_index) = Ev_minus_Phi;
+						Evs_minus_Phis_svds.at(curr_Ev_minus_Phi_svd_min_index) = Ev_minus_Phi_svd;
+						Us.at(curr_Ev_minus_Phi_svd_min_index) = U;
+					}
+					// getting the summation
+					zr_star_hat_dot_sum = 0;
+					tf::Vector3 zr_star_hat_dot_term2_temp = tf::Vector3(0,0,0);
+					for (int ii = 0; ii < Evs_minus_Phis.size(); ii++)
+					{
+						zr_star_hat_dot_term2_temp = -(Evs_minus_Phis.at(ii)*zr_star_hat) - Us.at(ii);
+						//zr_star_hat_dot_term2_temp = -(Evs_minus_Phis.at(ii)*red_wrt_reference.getOrigin().getZ()) - Us.at(ii);
+						zr_star_hat_dot_sum += (Evs_minus_Phis.at(ii)).dot(zr_star_hat_dot_term2_temp);
+					}
 				}
-				// getting the summation
-				zr_star_hat_dot_sum = 0;
-				tf::Vector3 zr_star_hat_dot_term2_temp = tf::Vector3(0,0,0);
-				for (int ii = 0; ii < Evs_minus_Phis.size(); ii++)
+				else
 				{
-					zr_star_hat_dot_term2_temp = -(Evs_minus_Phis.at(ii)*zr_star_hat) - Us.at(ii);
-					//zr_star_hat_dot_term2_temp = -(Evs_minus_Phis.at(ii)*red_wrt_reference.getOrigin().getZ()) - Us.at(ii);
-					zr_star_hat_dot_sum += (Evs_minus_Phis.at(ii)).dot(zr_star_hat_dot_term2_temp);
+					zr_star_hat_dot_sum = 0;
 				}
 				
-				// from mocap
-				// if the current norm is greater than the minimum norm of the history will remove the old min and add the new one to the end
-				if ( Ev_minus_Phi_svdm > *curr_Ev_minus_Phi_svd_min_iterm )
-				{
-					// replace the previous min from the history
-					Evs_minus_Phism.at(curr_Ev_minus_Phi_svd_min_indexm) = Ev_minus_Phim;
-					Evs_minus_Phis_svdsm.at(curr_Ev_minus_Phi_svd_min_indexm) = Ev_minus_Phi_svdm;
-					Usm.at(curr_Ev_minus_Phi_svd_min_indexm) = Um;
-				}
-				// getting the summation
-				zr_star_hat_dot_summ = 0;
-				tf::Vector3 zr_star_hat_dot_term2_tempm = tf::Vector3(0,0,0);
-				for (int ii = 0; ii < Evs_minus_Phism.size(); ii++)
-				{
-					zr_star_hat_dot_term2_tempm = -(Evs_minus_Phism.at(ii)*zr_star_hatm) - Usm.at(ii);
-					//zr_star_hat_dot_term2_tempm = -(Evs_minus_Phism.at(ii)*red_wrt_reference.getOrigin().getZ()) - Usm.at(ii);
-					zr_star_hat_dot_summ += (Evs_minus_Phism.at(ii)).dot(zr_star_hat_dot_term2_tempm);
-				}
+				// from tracking
+				zr_star_hat_dot = gamma_1*ev.dot(phi) + gamma_1*gamma_2*zr_star_hat_dot_sum;
+				//zr_star_hat_dot = gamma_1*gamma_2*zr_star_hat_dot_sum;
 			}
-			else
+			
+			if (update_mocap)
 			{
-				zr_star_hat_dot_summ = 0;
+				// from mocap
+				Ev_minus_Phim = Evm - Phim;// Ev - Phi
+				Ev_minus_Phi_svdm = Ev_minus_Phim.length2();// Ev - Phi, sum of square of each element
+				curr_Ev_minus_Phi_svd_min_iterm = std::min_element(Evs_minus_Phis_svdsm.begin(),Evs_minus_Phis_svdsm.end());// finding the minimum value
+				curr_Ev_minus_Phi_svd_min_indexm = std::distance(Evs_minus_Phis_svdsm.begin(),curr_Ev_minus_Phi_svd_min_iterm);// getting the index of the iterator
+			
+				if (time_from_begin > integration_window)
+				{
+					// from mocap
+					// if the current norm is greater than the minimum norm of the history will remove the old min and add the new one to the end
+					if ( Ev_minus_Phi_svdm > *curr_Ev_minus_Phi_svd_min_iterm )
+					{
+						// replace the previous min from the history
+						Evs_minus_Phism.at(curr_Ev_minus_Phi_svd_min_indexm) = Ev_minus_Phim;
+						Evs_minus_Phis_svdsm.at(curr_Ev_minus_Phi_svd_min_indexm) = Ev_minus_Phi_svdm;
+						Usm.at(curr_Ev_minus_Phi_svd_min_indexm) = Um;
+					}
+					// getting the summation
+					zr_star_hat_dot_summ = 0;
+					tf::Vector3 zr_star_hat_dot_term2_tempm = tf::Vector3(0,0,0);
+					for (int ii = 0; ii < Evs_minus_Phism.size(); ii++)
+					{
+						zr_star_hat_dot_term2_tempm = -(Evs_minus_Phism.at(ii)*zr_star_hatm) - Usm.at(ii);
+						//zr_star_hat_dot_term2_tempm = -(Evs_minus_Phism.at(ii)*red_wrt_reference.getOrigin().getZ()) - Usm.at(ii);
+						zr_star_hat_dot_summ += (Evs_minus_Phism.at(ii)).dot(zr_star_hat_dot_term2_tempm);
+					}
+				}
+				else
+				{
+					zr_star_hat_dot_summ = 0;
+				}
+		
+				// from mocap
+				zr_star_hat_dotm = gamma_1*evm.dot(phim) + gamma_1*gamma_2*zr_star_hat_dot_summ;
+				//zr_star_hat_dotm = gamma_1*gamma_2*zr_star_hat_dot_summ;
 			}
-			
-			// from tracking
-			//zr_star_hat_dot = gamma_1*ev.dot(phi) + gamma_1*gamma_2*zr_star_hat_dot_sum;
-			zr_star_hat_dot = gamma_1*gamma_2*zr_star_hat_dot_sum;
-			
-			// from mocap
-			//zr_star_hat_dotm = gamma_1*evm.dot(phim) + gamma_1*gamma_2*zr_star_hat_dot_summ;
-			zr_star_hat_dotm = gamma_1*gamma_2*zr_star_hat_dot_summ;
 		}
 		
 		/********** calculating the value for Ev **********/
 		void get_Ev(bool update_track, bool update_mocap)
 		{
-			shift_sample_set(Ev_samples, ev);// shifting the tracking buffer
-			shift_sample_set(Ev_samplesm, evm);// shifting the mocap buffer
-			// getting Ev, it is the difference between the last and first, if only 1 element, just use the first
-			if (Ev_samples.size() > 1)
+			if (update_track)
 			{
-				Ev = Ev_samples.back() - Ev_samples.front();// from tracking
+				shift_sample_set(Ev_samples, ev);// shifting the tracking buffer
+				// getting Ev, it is the difference between the last and first, if only 1 element, just use the first
+				if (Ev_samples.size() > 1)
+				{
+					Ev = Ev_samples.back() - Ev_samples.front();// from tracking
+				}
 			}
-			if (Ev_samplesm.size() > 1)
+			
+			if (update_mocap)
 			{
-				Evm = Ev_samplesm.back() - Ev_samplesm.front();// from mocap
+				shift_sample_set(Ev_samplesm, evm);// shifting the mocap buffer
+				if (Ev_samplesm.size() > 1)
+				{
+					Evm = Ev_samplesm.back() - Ev_samplesm.front();// from mocap
+				}
 			}
 		}
 		
 		/********** calculating the value for big Phi **********/
 		void get_Phi(bool update_track, bool update_mocap)
 		{
-			// from tracking
-			shift_sample_set(Phi_samples, phi);// phi has already been calculated earlier so just need to put onto the deque then integrate
-			calculate_integral(Phi, Phi_samples, trapz_timestamps);// getting the integral to calculate Phi
-			
-			// from mocap
-			shift_sample_set(Phi_samplesm, phim);// phi has already been calculated earlier so just need to put onto the deque then integrate
-			calculate_integral(Phim, Phi_samplesm, trapz_timestamps);// getting the integral to calculate Phi
+			if (update_track)
+			{
+				// from tracking
+				shift_sample_set(Phi_samples, phi);// phi has already been calculated earlier so just need to put onto the deque then integrate
+				calculate_integral(Phi, Phi_samples, trapz_timestamps);// getting the integral to calculate Phi
+			}
+			if (update_mocap)
+			{
+				// from mocap
+				shift_sample_set(Phi_samplesm, phim);// phi has already been calculated earlier so just need to put onto the deque then integrate
+				calculate_integral(Phim, Phi_samplesm, trapz_timestampsm);// getting the integral to calculate Phi
+			}
 		}
 		
 		/********** calculating the value for Uvar **********/
 		void get_U(bool update_track, bool update_mocap)
 		{
-			// from tracking
-			Uvar = alpha_red*(Lv*vc);// using a new variable uvar to represent the multiplication used to get the integral for U
-			shift_sample_set(Uvar_samples,Uvar);// putting the Uvars onto the Uvar deque
-			calculate_integral(U, Uvar_samples, trapz_timestamps);// getting U, the integral of Uvar_samples
+			if (update_track)
+			{
+				// from tracking
+				Uvar = alpha_red*(Lv*vc);// using a new variable uvar to represent the multiplication used to get the integral for U
+				shift_sample_set(Uvar_samples,Uvar);// putting the Uvars onto the Uvar deque
+				calculate_integral(U, Uvar_samples, trapz_timestamps);// getting U, the integral of Uvar_samples
+			}
 			
-			// from mocap
-			Uvarm = alpha_redm*(Lvm*vcm);// using a new variable uvar to represent the multiplication used to get the integral for U
-			shift_sample_set(Uvar_samplesm,Uvarm);// putting the Uvars onto the Uvar deque
-			calculate_integral(Um, Uvar_samplesm, trapz_timestamps);// getting U, the integral of Uvar_samples
+			if (update_mocap)
+			{
+				// from mocap
+				Uvarm = alpha_redm*(Lvm*vcm);// using a new variable uvar to represent the multiplication used to get the integral for U
+				shift_sample_set(Uvar_samplesm,Uvarm);// putting the Uvars onto the Uvar deque
+				calculate_integral(Um, Uvar_samplesm, trapz_timestampsm);// getting U, the integral of Uvar_samples
+			}
 		}
 		
 		/********** function to calculate the integral of a Vector3 using trapizoidal rule **********/
@@ -2273,85 +2425,225 @@ class Controller
 		/********** velocity command **********/
 		void output_velocity_command(bool update_track, bool update_mocap)
 		{
-			if (alpha_red > 0 && start_controller)
+			double scale = 2;
+			double scaleb = 2;
+			
+			//std::cout << "3: " << ros::Time::now() - start_timem << std::endl;
+
+			generate_velocity_command_from_tracking(update_track, update_mocap);
+
+			//std::cout << "4: " << ros::Time::now() - start_timem << std::endl;
+			
+			//std::cout << "5: " << ros::Time::now() - start_timem << std::endl;
+			if (update_track && start_controller)
 			{
-				generate_velocity_command_from_tracking(update_track, update_mocap);
-				last_time = current_time;
-				geometry_msgs::Pose error_out;
-				//error_out.header.stamp = ros::Time::now();
-				error_out.position.x = ev.getX(); error_out.position.y = ev.getY(); error_out.position.z = ev.getZ(); 
-				error_out.orientation.x = Q_tilde.getX(); error_out.orientation.y = Q_tilde.getY(); error_out.orientation.z = Q_tilde.getZ(); error_out.orientation.w = Q_tilde.getW(); 
-				current_error_pub.publish(error_out);
-				double scale = 2;
-				// from tracking
-				vc_marker.header.stamp = ros::Time::now();
-				vc_marker_end.x = scale*vc.getX(); vc_marker_end.y = scale*vc.getY(); vc_marker_end.z = scale*vc.getZ();
-				vc_marker.points.clear();
-				vc_marker.points.push_back(vc_marker_start);
-				vc_marker.points.push_back(vc_marker_end);
-				wc_marker.header.stamp = ros::Time::now();
-				wc_marker_end.x = scale*wc.getX(); wc_marker_end.y = scale*wc.getY(); wc_marker_end.z = scale*wc.getZ();
-				wc_marker.points.clear();
-				wc_marker.points.push_back(wc_marker_start);
-				wc_marker.points.push_back(wc_marker_end);
+				std::cout << "alpha_red" << alpha_red << std::endl;
+				if (alpha_red > 0)
+				{
+					last_time = current_time;
+					geometry_msgs::Pose error_out;
+					//error_out.header.stamp = ros::Time::now();
+					error_out.position.x = ev.getX(); error_out.position.y = ev.getY(); error_out.position.z = ev.getZ(); 
+					error_out.orientation.x = Q_tilde.getX(); error_out.orientation.y = Q_tilde.getY(); error_out.orientation.z = Q_tilde.getZ(); error_out.orientation.w = Q_tilde.getW(); 
+					current_error_pub.publish(error_out);
+					// from tracking
+					vc_marker.header.stamp = ros::Time::now();
+					vc_marker_end.x = scale*vc.getX(); vc_marker_end.y = scale*vc.getY(); vc_marker_end.z = scale*vc.getZ();
+					vc_marker.points.clear();
+					vc_marker.points.push_back(vc_marker_start);
+					vc_marker.points.push_back(vc_marker_end);
+					wc_marker.header.stamp = ros::Time::now();
+					wc_marker_end.x = scale*wc.getX(); wc_marker_end.y = scale*wc.getY(); wc_marker_end.z = scale*wc.getZ();
+					wc_marker.points.clear();
+					wc_marker.points.push_back(wc_marker_start);
+					wc_marker.points.push_back(wc_marker_end);
+					
+					if (start_controller)
+					{
+						if (!std::isnan(vc.getX()) && !std::isnan(vc.getY()) && !std::isnan(vc.getY()) && !std::isnan(wc.getZ()))
+						{	
+							// from tracking
+							// output linear velocity is q_cam_wrt_body * vc * q_cam_wrt_body.inverse() - w_body_wrt_world X p_cam_wrt_body
+							tf::Quaternion vc_body_term1 = (camera_wrt_body.getRotation() * tf::Quaternion(vc.getX(), vc.getY(), vc.getZ(), 0)) * (camera_wrt_body.getRotation().inverse());
+							tf::Vector3 vc_body_term2 = w_body.cross(camera_wrt_body.getOrigin());
+							//velocity_command.linear.x = vc_body_term1.getX() - vc_body_term2.getX();
+							//velocity_command.linear.y = vc_body_term1.getY() - vc_body_term2.getY();
+							//velocity_command.linear.z = vc_body_term1.getZ() - vc_body_term2.getZ();
+							velocity_command.linear.x = vc_body_term1.getX();
+							velocity_command.linear.y = vc_body_term1.getY();
+							velocity_command.linear.z = vc_body_term1.getZ();
+							
+							std::cout << "body linear calculated from tracking" << std::endl;
+							// output angular velocity is q_cam_wrt_body * wc * q_cam_wrt_body.inverse() - (q_cam_wrt_body * w_image * q_cam_wrt_body.inverse() - w_body)
+							tf::Quaternion wc_body_term1 = (camera_wrt_body.getRotation() * tf::Quaternion(wc.getX(), wc.getY(), wc.getZ(), 0)) * (camera_wrt_body.getRotation().inverse());
+							tf::Quaternion wc_body_term2 = (camera_wrt_body.getRotation() * tf::Quaternion(w_image.getX(), w_image.getY(), w_image.getZ(), 0)) * (camera_wrt_body.getRotation().inverse());
+							//velocity_command.angular.x = wc_body_term1.getX() - (wc_body_term2.getX() - w_body.getX());
+							//velocity_command.angular.y = wc_body_term1.getY() - (wc_body_term2.getY() - w_body.getY());
+							//velocity_command.angular.z = wc_body_term1.getZ() - (wc_body_term2.getZ() - w_body.getZ());
+							velocity_command.angular.x = wc_body_term1.getX();
+							velocity_command.angular.y = wc_body_term1.getY();
+							velocity_command.angular.z = wc_body_term1.getZ();
+							std::cout << "body angular calculated from tracking" << std::endl;
+							//std::cout << "none are nan" << std::endl;
+							//std::cout << "vc_body_term1:\n x: " << vc_body_term1.getX() << " y: " << vc_body_term1.getY() << " z: " << vc_body_term1.getZ() << " w: " << vc_body_term1.getW() << std::endl;
+							//std::cout << "vc_body_term2:\n x: " << vc_body_term2.getX() << " y: " << vc_body_term2.getY() << " z: " << vc_body_term2.getZ() << std::endl;
+							//std::cout << "vc_body:\n x: " << velocity_command.linear.x << " y: " << velocity_command.linear.y << " z: " << velocity_command.linear.z << std::endl;
+							//std::cout << "wc_body_term1:\n x: " << wc_body_term1.getX() << " y: " << wc_body_term1.getY() << " z: " << wc_body_term1.getZ() << std::endl;
+							//std::cout << "wc_body_term1:\n x: " << wc_body_term2.getX() << " y: " << wc_body_term2.getY() << " z: " << wc_body_term2.getZ() << std::endl;
+							//std::cout << "wc_body_term1:\n x: " << w_body.getX() << " y: " << w_body.getY() << " z: " << w_body.getZ() << std::endl;
+							//std::cout << "wc_body:\n z: " << velocity_command.angular.z << std::endl;
+						}
+						else
+						{
+							velocity_command.linear.x = 0;
+							velocity_command.linear.y = 0;
+							velocity_command.linear.z = 0;
+							velocity_command.angular.x = 0;
+							velocity_command.angular.y = 0;
+							velocity_command.angular.z = 0;
+							std::cout << "body velocities set to zeros" << std::endl;
+						}
+						
+						// if left trigger is less than 0 means want to use mocap velocity commands otherwise using camera
+						if (l_trigger_a5 > 0)
+						{
+							velocity_command_out.linear = velocity_command.linear;
+							velocity_command_out.angular.z = velocity_command.angular.z;
+							std::cout << "\n\n tracking output used\n\n" << std::endl;
+						}
+						else
+						{
+							std::cout << "left trigger was pulled" << std::endl;
+						}
+					}
+				}
+				else
+				{
+					velocity_command.linear.x = 0;
+					velocity_command.linear.y = 0;
+					velocity_command.linear.z = 0;
+					velocity_command.angular.x = 0;
+					velocity_command.angular.y = 0;
+					velocity_command.angular.z = 0;
+					std::cout << "body velocities set to zeros" << std::endl;	
+					std::cout << "alpha red was negative, did not update velocities" << std::endl;
+				}
 				
-				// from mocap
-				vcm_marker.header.stamp = ros::Time::now();
-				vcm_marker_end.x = scale*vcm.getX(); vcm_marker_end.y = scale*vcm.getY(); vcm_marker_end.z = scale*vcm.getZ();
-				vcm_marker.points.clear();
-				vcm_marker.points.push_back(vcm_marker_start);
-				vcm_marker.points.push_back(vcm_marker_end);
-				wcm_marker.header.stamp = ros::Time::now();
-				wcm_marker_end.x = scale*wcm.getX(); wcm_marker_end.y = scale*wcm.getY(); wcm_marker_end.z = scale*wcm.getZ();
-				wcm_marker.points.clear();
-				wcm_marker.points.push_back(wcm_marker_start);
-				wcm_marker.points.push_back(wcm_marker_end);
+				std::cout << "linear x: " << velocity_command.linear.x << std::endl;
+				std::cout << "linear y: " << velocity_command.linear.y << std::endl;
+				std::cout << "linear z: " << velocity_command.linear.z << std::endl;
+				std::cout << "angular z: " << velocity_command.angular.z << std::endl;
 				
+				//from tracking
+				
+				vcb_marker_end.x = scaleb*velocity_command.linear.x; vcb_marker_end.y = scaleb*velocity_command.linear.y; vcb_marker_end.z = scaleb*velocity_command.linear.z;
+				vcb_marker.points.clear();
+				vcb_marker.points.push_back(vcb_marker_start);
+				vcb_marker.points.push_back(vcb_marker_end);
+				wcb_marker_end.x = scaleb*velocity_command.angular.x; wcb_marker_end.y = scaleb*velocity_command.angular.y; wcb_marker_end.z = scaleb*velocity_command.angular.z;
+				wcb_marker.points.clear();
+				wcb_marker.points.push_back(wcb_marker_start);
+				wcb_marker.points.push_back(wcb_marker_end);
+				
+				if (write_to_file)
+				{
+					output_file.open(output_file_name, std::fstream::out | std::fstream::app);
+				}
+				if (output_file.is_open())
+				{
+					output_file  << current_time.toSec() - start_time.toSec() << "," << lb_button_teleop_b4 << ","
+					<< pr.getX() << "," << pr.getY() << "," << pr.getZ() << ","
+					<< prd.getX() << "," << prd.getY() << "," << prd.getZ() << ","
+					<< mr.getX() << "," << mr.getY() << "," << mr.getZ() << ","
+					<< mrd.getX() << "," << mrd.getY() << "," << mrd.getZ() << ","
+					<< red_wrt_world_calc.getOrigin().getX() << "," << red_wrt_world_calc.getOrigin().getY() << "," << red_wrt_world_calc.getOrigin().getZ() << ","
+					<< green_wrt_world_calc.getOrigin().getX() << "," << green_wrt_world_calc.getOrigin().getY() << "," << green_wrt_world_calc.getOrigin().getZ() << ","
+					<< cyan_wrt_world_calc.getOrigin().getX() << "," << cyan_wrt_world_calc.getOrigin().getY() << "," << cyan_wrt_world_calc.getOrigin().getZ() << ","
+					<< purple_wrt_world_calc.getOrigin().getX() << "," << purple_wrt_world_calc.getOrigin().getY() << "," << purple_wrt_world_calc.getOrigin().getZ() << ","
+					<< red_wrt_world.getOrigin().getX() << "," << red_wrt_world.getOrigin().getY() << "," << red_wrt_world.getOrigin().getZ() << ","
+					<< green_wrt_world.getOrigin().getX() << "," << green_wrt_world.getOrigin().getY() << "," << green_wrt_world.getOrigin().getZ() << ","
+					<< cyan_wrt_world.getOrigin().getX() << "," << cyan_wrt_world.getOrigin().getY() << "," << cyan_wrt_world.getOrigin().getZ() << ","
+					<< purple_wrt_world.getOrigin().getX() << "," << purple_wrt_world.getOrigin().getY() << "," << purple_wrt_world.getOrigin().getZ() << ","
+					<< desired_wrt_world.getOrigin().getX() << "," << desired_wrt_world.getOrigin().getY() << "," << desired_wrt_world.getOrigin().getZ() << ","
+					<< camera_wrt_world_calc.getOrigin().getX() << "," << camera_wrt_world_calc.getOrigin().getY() << "," << camera_wrt_world_calc.getOrigin().getZ() << ","
+					<< camera_wrt_world.getOrigin().getX() << "," << camera_wrt_world.getOrigin().getY() << "," << camera_wrt_world.getOrigin().getZ() << ","
+					<< desired_wrt_world.getRotation().getW() << "," << desired_wrt_world.getRotation().getX() << "," << desired_wrt_world.getRotation().getY() << "," << desired_wrt_world.getRotation().getZ() << ","
+					<< camera_wrt_world_calc.getRotation().getW() << "," << camera_wrt_world_calc.getRotation().getX() << "," << camera_wrt_world_calc.getRotation().getY() << "," << camera_wrt_world_calc.getRotation().getZ() << ","
+					<< camera_wrt_world.getRotation().getW() << "," << camera_wrt_world.getRotation().getX() << "," << camera_wrt_world.getRotation().getY() << "," << camera_wrt_world.getRotation().getZ() << ","
+					
+					<< body_wrt_world_mocap.getOrigin().getX() << "," << body_wrt_world_mocap.getOrigin().getY() << "," << body_wrt_world_mocap.getOrigin().getZ() << ","
+					
+					<< body_wrt_world_mocap.getRotation().getW() << "," << body_wrt_world_mocap.getRotation().getX() << "," << body_wrt_world_mocap.getRotation().getY() << "," << body_wrt_world_mocap.getRotation().getZ() << ","
+					<< pe.getX() << "," << pe.getY() << "," << pe.getZ() << ","
+					<< ped.getX() << "," << ped.getY() << "," << ped.getZ() << ","
+					<< Q_cf.getW() << "," << Q_cf.getX() << "," << Q_cf.getY() << "," << Q_cf.getZ() << ","
+					<< Q_df.getW() << "," << Q_df.getX() << "," << Q_df.getY() << "," << Q_df.getZ() << ","
+					<< Q_tilde.getW() << "," << Q_tilde.getX() << "," << Q_tilde.getY() << "," << Q_tilde.getZ() << ","
+					<< ev.getX() << "," << ev.getY() << "," << ev.getZ() << ","
+					<< phi.getX() << "," << phi.getY() << "," << phi.getZ() << ","
+					<< vc.getX() << "," << vc.getY() << "," << vc.getZ() << ","
+					<< wc.getX() << "," << wc.getY() << "," << wc.getZ() << ","
+					<< vcd.getX() << "," << vcd.getY() << "," << vcd.getZ() << ","
+					<< wcd.getX() << "," << wcd.getY() << "," << wcd.getZ() << ","
+					<< w_body.getX() << "," << w_body.getY() << "," << w_body.getZ() << ","
+					<< velocity_command.linear.x << "," << velocity_command.linear.y << "," << velocity_command.linear.z << ","
+					<< velocity_command.angular.x << "," << velocity_command.angular.y << "," << velocity_command.angular.z << ","
+					<< Ev.getX() << "," << Ev.getY() << "," << Ev.getZ() << ","
+					<< Phi.getX() << "," << Phi.getY() << "," << Phi.getZ() << ","
+					<< Uvar.getX() << "," << Uvar.getY() << "," << Uvar.getZ() << ","
+					<< Ev_minus_Phi.getX() << "," << Ev_minus_Phi.getY() << "," << Ev_minus_Phi.getZ() << ","
+					<< Ev_minus_Phi_svd << ","
+					<< U.getX() << "," << U.getY() << "," << U.getZ() << ","
+					<< zr_star_hat_dot << ","
+					<< zr_star_hat
+					<< "\n";
+					output_file.close();
+				}
+			}
+			else
+			{
+				std::cout << "new decomp not recieved" << std::endl;
 			}
 			
-			if (start_controller)
+			//std::cout << "6: " << ros::Time::now() - start_timem << std::endl;
+			
+			//std::cout << "7: " << ros::Time::now() - start_timem << std::endl;
+			if (update_mocap)
 			{
-				//std::cout << "command from controller" << std::endl;
-				//std::cout << "vc:\n x: " << vc.getX() << " y: " << vc.getY() << " z: " << vc.getZ() << std::endl;
-				//std::cout << "wc:\n x: " << wc.getX() << " y: " << wc.getY() << " z: " << wc.getZ() << std::endl;
-				//std::cout << "w_body:\n x: " << w_body.getX() << " y: " << w_body.getY() << " z: " << w_body.getZ() << std::endl;
-				//std::cout << "alpha_red: " << alpha_red  << std::endl;
-				//std::cout << "alpha_green: " << alpha_green  << std::endl;
-				//std::cout << "alpha_cyan: " << alpha_cyan  << std::endl;
-				//std::cout << "alpha_purple: " << alpha_purple  << std::endl;
-				if (!std::isnan(vc.getX()) && !std::isnan(vc.getY()) && !std::isnan(vc.getY()) && !std::isnan(wc.getZ()) && alpha_red > 0 && alpha_green > 0 && alpha_cyan > 0 && alpha_purple > 0)
-				{	
-					// from tracking
-					// output linear velocity is q_cam_wrt_body * vc * q_cam_wrt_body.inverse() - w_body_wrt_world X p_cam_wrt_body
-					tf::Quaternion vc_body_term1 = (camera_wrt_body.getRotation() * tf::Quaternion(vc.getX(), vc.getY(), vc.getZ(), 0)) * (camera_wrt_body.getRotation().inverse());
-					tf::Vector3 vc_body_term2 = w_body.cross(camera_wrt_body.getOrigin());
-					velocity_command.linear.x = vc_body_term1.getX() - vc_body_term2.getX();
-					velocity_command.linear.y = vc_body_term1.getY() - vc_body_term2.getY();
-					velocity_command.linear.z = vc_body_term1.getZ() - vc_body_term2.getZ();
-				
-					// output angular velocity is q_cam_wrt_body * wc * q_cam_wrt_body.inverse() - (q_cam_wrt_body * w_image * q_cam_wrt_body.inverse() - w_body)
-					tf::Quaternion wc_body_term1 = (camera_wrt_body.getRotation() * tf::Quaternion(wc.getX(), wc.getY(), wc.getZ(), 0)) * (camera_wrt_body.getRotation().inverse());
-					tf::Quaternion wc_body_term2 = (camera_wrt_body.getRotation() * tf::Quaternion(w_image.getX(), w_image.getY(), w_image.getZ(), 0)) * (camera_wrt_body.getRotation().inverse());
-					velocity_command.angular.x = wc_body_term1.getX() - (wc_body_term2.getX() - w_body.getX());
-					velocity_command.angular.y = wc_body_term1.getY() - (wc_body_term2.getY() - w_body.getY());
-					velocity_command.angular.z = wc_body_term1.getZ() - (wc_body_term2.getZ() - w_body.getZ());
+				if (start_controller && (alpha_redm > 0))
+				{
+					// from mocap
+					vcm_marker.header.stamp = ros::Time::now();
+					vcm_marker_end.x = scale*vcm.getX(); vcm_marker_end.y = scale*vcm.getY(); vcm_marker_end.z = scale*vcm.getZ();
+					vcm_marker.points.clear();
+					vcm_marker.points.push_back(vcm_marker_start);
+					vcm_marker.points.push_back(vcm_marker_end);
+					wcm_marker.header.stamp = ros::Time::now();
+					wcm_marker_end.x = scale*wcm.getX(); wcm_marker_end.y = scale*wcm.getY(); wcm_marker_end.z = scale*wcm.getZ();
+					wcm_marker.points.clear();
+					wcm_marker.points.push_back(wcm_marker_start);
+					wcm_marker.points.push_back(wcm_marker_end);
 					
-					std::cout << "none are nan" << std::endl;
-					std::cout << "vc_body_term1:\n x: " << vc_body_term1.getX() << " y: " << vc_body_term1.getY() << " z: " << vc_body_term1.getZ() << " w: " << vc_body_term1.getW() << std::endl;
-					std::cout << "vc_body_term2:\n x: " << vc_body_term2.getX() << " y: " << vc_body_term2.getY() << " z: " << vc_body_term2.getZ() << std::endl;
-					std::cout << "vc_body:\n x: " << velocity_command.linear.x << " y: " << velocity_command.linear.y << " z: " << velocity_command.linear.z << std::endl;
-					std::cout << "wc_body_term1:\n x: " << wc_body_term1.getX() << " y: " << wc_body_term1.getY() << " z: " << wc_body_term1.getZ() << std::endl;
-					std::cout << "wc_body_term1:\n x: " << wc_body_term2.getX() << " y: " << wc_body_term2.getY() << " z: " << wc_body_term2.getZ() << std::endl;
-					std::cout << "wc_body_term1:\n x: " << w_body.getX() << " y: " << w_body.getY() << " z: " << w_body.getZ() << std::endl;
-					std::cout << "wc_body:\n z: " << velocity_command.angular.z << std::endl;
+					// from mocap
+					vcbm_marker_end.x = scaleb*velocity_commandm.linear.x; vcbm_marker_end.y = scaleb*velocity_commandm.linear.y; vcbm_marker_end.z = scaleb*velocity_commandm.linear.z;
+					vcbm_marker.points.clear();
+					vcbm_marker.points.push_back(vcbm_marker_start);
+					vcbm_marker.points.push_back(vcbm_marker_end);
+					wcbm_marker_end.x = scaleb*velocity_commandm.angular.x; wcbm_marker_end.y = scaleb*velocity_commandm.angular.y; wcbm_marker_end.z = scaleb*velocity_commandm.angular.z;
+					wcbm_marker.points.clear();
+					wcbm_marker.points.push_back(wcbm_marker_start);
+					wcbm_marker.points.push_back(wcbm_marker_end);
 					
 					// from mocap
 					// output linear velocity is q_cam_wrt_body * vc * q_cam_wrt_body.inverse() - w_body_wrt_world X p_cam_wrt_body
 					tf::Quaternion vc_body_term1m = (camera_wrt_body.getRotation() * tf::Quaternion(vcm.getX(), vcm.getY(), vcm.getZ(), 0)) * (camera_wrt_body.getRotation().inverse());
 					tf::Vector3 vc_body_term2m = w_body.cross(camera_wrt_body.getOrigin());
-					velocity_commandm.linear.x = vc_body_term1m.getX() - vc_body_term2m.getX();
-					velocity_commandm.linear.y = vc_body_term1m.getY() - vc_body_term2m.getY();
-					velocity_commandm.linear.z = vc_body_term1m.getZ() - vc_body_term2m.getZ();
+					//velocity_commandm.linear.x = vc_body_term1m.getX() - vc_body_term2m.getX();
+					//velocity_commandm.linear.y = vc_body_term1m.getY() - vc_body_term2m.getY();
+					//velocity_commandm.linear.z = vc_body_term1m.getZ() - vc_body_term2m.getZ();
+					velocity_commandm.linear.x = vc_body_term1m.getX();
+					velocity_commandm.linear.y = vc_body_term1m.getY();
+					velocity_commandm.linear.z = vc_body_term1m.getZ();
 				
 					// output angular velocity is q_cam_wrt_body * wc * q_cam_wrt_body.inverse() - (q_cam_wrt_body * w_image * q_cam_wrt_body.inverse() - w_body)
 					tf::Quaternion wc_body_term1m = (camera_wrt_body.getRotation() * tf::Quaternion(wcm.getX(), wcm.getY(), wcm.getZ(), 0)) * (camera_wrt_body.getRotation().inverse());
@@ -2373,24 +2665,18 @@ class Controller
 					w_body_o_pub.publish(w_body_o);
 					wcbm_o_pub.publish(wcbm_o);
 					
-					std::cout << "none are nan" << std::endl;
-					std::cout << "vc_body_term1m:\n x: " << vc_body_term1m.getX() << " y: " << vc_body_term1m.getY() << " z: " << vc_body_term1m.getZ() << " w: " << vc_body_term1m.getW() << std::endl;
-					std::cout << "vc_body_term2m:\n x: " << vc_body_term2m.getX() << " y: " << vc_body_term2m.getY() << " z: " << vc_body_term2m.getZ() << std::endl;
-					std::cout << "vc_bodym:\n x: " << velocity_commandm.linear.x << " y: " << velocity_commandm.linear.y << " z: " << velocity_commandm.linear.z << std::endl;
-					std::cout << "wc_body_term1m:\n x: " << wc_body_term1m.getX() << " y: " << wc_body_term1m.getY() << " z: " << wc_body_term1m.getZ() << std::endl;
-					std::cout << "wc_body_term1m:\n x: " << wc_body_term2m.getX() << " y: " << wc_body_term2m.getY() << " z: " << wc_body_term2m.getZ() << std::endl;
-					std::cout << "wc_body_term1m:\n x: " << w_body.getX() << " y: " << w_body.getY() << " z: " << w_body.getZ() << std::endl;
-					std::cout << "wc_bodym:\n z: " << velocity_commandm.angular.z << std::endl;
+					//std::cout << "vc_body_term1m:\n x: " << vc_body_term1m.getX() << " y: " << vc_body_term1m.getY() << " z: " << vc_body_term1m.getZ() << " w: " << vc_body_term1m.getW() << std::endl;
+					//std::cout << "vc_body_term2m:\n x: " << vc_body_term2m.getX() << " y: " << vc_body_term2m.getY() << " z: " << vc_body_term2m.getZ() << std::endl;
+					//std::cout << "vc_bodym:\n x: " << velocity_commandm.linear.x << " y: " << velocity_commandm.linear.y << " z: " << velocity_commandm.linear.z << std::endl;
+					//std::cout << "wc_body_term1m:\n x: " << wc_body_term1m.getX() << " y: " << wc_body_term1m.getY() << " z: " << wc_body_term1m.getZ() << std::endl;
+					//std::cout << "wc_body_term1m:\n x: " << wc_body_term2m.getX() << " y: " << wc_body_term2m.getY() << " z: " << wc_body_term2m.getZ() << std::endl;
+					//std::cout << "wc_body_term1m:\n x: " << w_body.getX() << " y: " << w_body.getY() << " z: " << w_body.getZ() << std::endl;
+					//std::cout << "wc_bodym:\n z: " << velocity_commandm.angular.z << std::endl;
+					
 					
 				}
-				else
+				else 
 				{
-					velocity_command.linear.x = 0;
-					velocity_command.linear.y = 0;
-					velocity_command.linear.z = 0;
-					velocity_command.angular.x = 0;
-					velocity_command.angular.y = 0;
-					velocity_command.angular.z = 0;
 					velocity_commandm.linear.x = 0;
 					velocity_commandm.linear.y = 0;
 					velocity_commandm.linear.z = 0;
@@ -2398,114 +2684,36 @@ class Controller
 					velocity_commandm.angular.y = 0;
 					velocity_commandm.angular.z = 0;
 				}
-				// body markers update
-				//from tracking
-				double scaleb = 2;
-				vcb_marker_end.x = scaleb*velocity_command.linear.x; vcb_marker_end.y = scaleb*velocity_command.linear.y; vcb_marker_end.z = scaleb*velocity_command.linear.z;
-				vcb_marker.points.clear();
-				vcb_marker.points.push_back(vcb_marker_start);
-				vcb_marker.points.push_back(vcb_marker_end);
-				wcb_marker_end.x = scaleb*velocity_command.angular.x; wcb_marker_end.y = scaleb*velocity_command.angular.y; wcb_marker_end.z = scaleb*velocity_command.angular.z;
-				wcb_marker.points.clear();
-				wcb_marker.points.push_back(wcb_marker_start);
-				wcb_marker.points.push_back(wcb_marker_end);
 				
-				// from mocap
-				vcbm_marker_end.x = scaleb*velocity_commandm.linear.x; vcbm_marker_end.y = scaleb*velocity_commandm.linear.y; vcbm_marker_end.z = scaleb*velocity_commandm.linear.z;
-				vcbm_marker.points.clear();
-				vcbm_marker.points.push_back(vcbm_marker_start);
-				vcbm_marker.points.push_back(vcbm_marker_end);
-				wcbm_marker_end.x = scaleb*velocity_commandm.angular.x; wcbm_marker_end.y = scaleb*velocity_commandm.angular.y; wcbm_marker_end.z = scaleb*velocity_commandm.angular.z;
-				wcbm_marker.points.clear();
-				wcbm_marker.points.push_back(wcbm_marker_start);
-				wcbm_marker.points.push_back(wcbm_marker_end);
-				
-				std::cout << "linear x: " << velocity_command.linear.x << std::endl;
-				std::cout << "linear y: " << velocity_command.linear.y << std::endl;
-				std::cout << "linear z: " << velocity_command.linear.z << std::endl;
-				std::cout << "angular z: " << velocity_command.angular.z << std::endl;
-				
-				std::cout << "linear xm: " << velocity_commandm.linear.x << std::endl;
-				std::cout << "linear ym: " << velocity_commandm.linear.y << std::endl;
-				std::cout << "linear zm: " << velocity_commandm.linear.z << std::endl;
-				std::cout << "angular zm: " << velocity_commandm.angular.z << std::endl;
+				//std::cout << "linear xm: " << velocity_commandm.linear.x << std::endl;
+				//std::cout << "linear ym: " << velocity_commandm.linear.y << std::endl;
+				//std::cout << "linear zm: " << velocity_commandm.linear.z << std::endl;
+				//std::cout << "angular zm: " << velocity_commandm.angular.z << std::endl;
 				
 				// if left trigger is less than 0 means want to use mocap velocity commands otherwise using camera
 				if (l_trigger_a5 < 0)
 				{
-					velocity_commandout.linear = velocity_commandm.linear;
-					velocity_commandout.angular.z = velocity_commandm.angular.z;
+					velocity_command_out.linear = velocity_commandm.linear;
+					velocity_command_out.angular.z = velocity_commandm.angular.z;
+					std::cout << "\n\nmocap output used\n\n" << std::endl;
 				}
-				else
-				{
-					velocity_commandout.linear = velocity_command.linear;
-					velocity_commandout.angular.z = velocity_command.angular.z;
-				}
-				std::cout << "linear x out: " << velocity_commandout.linear.x << std::endl;
-				std::cout << "linear y out: " << velocity_commandout.linear.y << std::endl;
-				std::cout << "linear z out: " << velocity_commandout.linear.z << std::endl;
-				std::cout << "angular z out: " << velocity_commandout.angular.z << std::endl;
 				
-				if (start_autonomous)
-				{
-					cmd_vel_pub.publish(velocity_commandout);
-				}
 			}
 			
-			if (write_to_file)
+			//std::cout << "8: " << ros::Time::now() - start_timem << std::endl;
+			
+			//std::cout << "9: " << ros::Time::now() - start_timem << std::endl;
+			if (start_autonomous && start_controller)
 			{
-				output_file.open(output_file_name, std::fstream::out | std::fstream::app);
-			}
-			if (output_file.is_open())
-			{
-				output_file  << current_time.toSec() - start_time.toSec() << "," << lb_button_teleop_b4 << ","
-				<< pr.getX() << "," << pr.getY() << "," << pr.getZ() << ","
-				<< prd.getX() << "," << prd.getY() << "," << prd.getZ() << ","
-				<< mr.getX() << "," << mr.getY() << "," << mr.getZ() << ","
-				<< mrd.getX() << "," << mrd.getY() << "," << mrd.getZ() << ","
-				<< red_wrt_world_calc.getOrigin().getX() << "," << red_wrt_world_calc.getOrigin().getY() << "," << red_wrt_world_calc.getOrigin().getZ() << ","
-				<< green_wrt_world_calc.getOrigin().getX() << "," << green_wrt_world_calc.getOrigin().getY() << "," << green_wrt_world_calc.getOrigin().getZ() << ","
-				<< cyan_wrt_world_calc.getOrigin().getX() << "," << cyan_wrt_world_calc.getOrigin().getY() << "," << cyan_wrt_world_calc.getOrigin().getZ() << ","
-				<< purple_wrt_world_calc.getOrigin().getX() << "," << purple_wrt_world_calc.getOrigin().getY() << "," << purple_wrt_world_calc.getOrigin().getZ() << ","
-				<< red_wrt_world.getOrigin().getX() << "," << red_wrt_world.getOrigin().getY() << "," << red_wrt_world.getOrigin().getZ() << ","
-				<< green_wrt_world.getOrigin().getX() << "," << green_wrt_world.getOrigin().getY() << "," << green_wrt_world.getOrigin().getZ() << ","
-				<< cyan_wrt_world.getOrigin().getX() << "," << cyan_wrt_world.getOrigin().getY() << "," << cyan_wrt_world.getOrigin().getZ() << ","
-				<< purple_wrt_world.getOrigin().getX() << "," << purple_wrt_world.getOrigin().getY() << "," << purple_wrt_world.getOrigin().getZ() << ","
-				<< desired_wrt_world.getOrigin().getX() << "," << desired_wrt_world.getOrigin().getY() << "," << desired_wrt_world.getOrigin().getZ() << ","
-				<< camera_wrt_world_calc.getOrigin().getX() << "," << camera_wrt_world_calc.getOrigin().getY() << "," << camera_wrt_world_calc.getOrigin().getZ() << ","
-				<< camera_wrt_world.getOrigin().getX() << "," << camera_wrt_world.getOrigin().getY() << "," << camera_wrt_world.getOrigin().getZ() << ","
-				<< desired_wrt_world.getRotation().getW() << "," << desired_wrt_world.getRotation().getX() << "," << desired_wrt_world.getRotation().getY() << "," << desired_wrt_world.getRotation().getZ() << ","
-				<< camera_wrt_world_calc.getRotation().getW() << "," << camera_wrt_world_calc.getRotation().getX() << "," << camera_wrt_world_calc.getRotation().getY() << "," << camera_wrt_world_calc.getRotation().getZ() << ","
-				<< camera_wrt_world.getRotation().getW() << "," << camera_wrt_world.getRotation().getX() << "," << camera_wrt_world.getRotation().getY() << "," << camera_wrt_world.getRotation().getZ() << ","
+				cmd_vel_pub.publish(velocity_command_out);
+				std::cout << "linear x out: " << velocity_command_out.linear.x << std::endl;
+				std::cout << "linear y out: " << velocity_command_out.linear.y << std::endl;
+				std::cout << "linear z out: " << velocity_command_out.linear.z << std::endl;
+				std::cout << "angular z out: " << velocity_command_out.angular.z << std::endl;
 				
-				<< body_wrt_world_mocap.getOrigin().getX() << "," << body_wrt_world_mocap.getOrigin().getY() << "," << body_wrt_world_mocap.getOrigin().getZ() << ","
-				
-				<< body_wrt_world_mocap.getRotation().getW() << "," << body_wrt_world_mocap.getRotation().getX() << "," << body_wrt_world_mocap.getRotation().getY() << "," << body_wrt_world_mocap.getRotation().getZ() << ","
-				<< pe.getX() << "," << pe.getY() << "," << pe.getZ() << ","
-				<< ped.getX() << "," << ped.getY() << "," << ped.getZ() << ","
-				<< Q_cf.getW() << "," << Q_cf.getX() << "," << Q_cf.getY() << "," << Q_cf.getZ() << ","
-				<< Q_df.getW() << "," << Q_df.getX() << "," << Q_df.getY() << "," << Q_df.getZ() << ","
-				<< Q_tilde.getW() << "," << Q_tilde.getX() << "," << Q_tilde.getY() << "," << Q_tilde.getZ() << ","
-				<< ev.getX() << "," << ev.getY() << "," << ev.getZ() << ","
-				<< phi.getX() << "," << phi.getY() << "," << phi.getZ() << ","
-				<< vc.getX() << "," << vc.getY() << "," << vc.getZ() << ","
-				<< wc.getX() << "," << wc.getY() << "," << wc.getZ() << ","
-				<< vcd.getX() << "," << vcd.getY() << "," << vcd.getZ() << ","
-				<< wcd.getX() << "," << wcd.getY() << "," << wcd.getZ() << ","
-				<< w_body.getX() << "," << w_body.getY() << "," << w_body.getZ() << ","
-				<< velocity_command.linear.x << "," << velocity_command.linear.y << "," << velocity_command.linear.z << ","
-				<< velocity_command.angular.x << "," << velocity_command.angular.y << "," << velocity_command.angular.z << ","
-				<< Ev.getX() << "," << Ev.getY() << "," << Ev.getZ() << ","
-				<< Phi.getX() << "," << Phi.getY() << "," << Phi.getZ() << ","
-				<< Uvar.getX() << "," << Uvar.getY() << "," << Uvar.getZ() << ","
-				<< Ev_minus_Phi.getX() << "," << Ev_minus_Phi.getY() << "," << Ev_minus_Phi.getZ() << ","
-				<< Ev_minus_Phi_svd << ","
-				<< U.getX() << "," << U.getY() << "," << U.getZ() << ","
-				<< zr_star_hat_dot << ","
-				<< zr_star_hat
-				<< "\n";
-				output_file.close();
 			}
+			//std::cout << "10: " << ros::Time::now() - start_timem << std::endl;
+			
 			
 		}
 
@@ -2519,7 +2727,7 @@ int main(int argc, char** argv)
 	double loop_rate_hz = 30;
 	bool write_to_file = true;
 	
-	std::string filename = "/home/ncr/ncr_ws/src/homog_track/testing_files/experiment_8.txt";
+	std::string filename = "/home/ncr/ncr_ws/src/homog_track/testing_files/experiment_9.txt";
 	if( (std::remove( filename.c_str() ) != 0) && write_to_file)
 	{
 		std::cout << "file does not exist" << std::endl;
@@ -2534,16 +2742,15 @@ int main(int argc, char** argv)
 	HomogDecomp homog_decomp;// homography decomp
 	Controller controller(loop_rate_hz, write_to_file, filename);// controller
 	
-	ros::Rate loop_rate(300);
+	ros::Rate loop_rate(loop_rate_hz*10);
 	
 	while (ros::ok())
 	{
 		controller.update_desired_pixels();
+		controller.mocap_decomp_callback(controller.new_decomp_recieved, true);
 		if (controller.new_decomp_recieved)
 		{
-			controller.output_velocity_command();
 			controller.new_decomp_recieved = false;
-			
 		}
 		// camera markers
 		controller.vc_marker_pub.publish(controller.vc_marker);
