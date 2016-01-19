@@ -60,8 +60,8 @@ class Joycall
 		double k1 = 1/7.0;// original 1/6.3
 		double kp_s = 2.5;
 		double kd_s = 0.075;
-		tf::Matrix3x3 kp = tf::Matrix3x3(kp_s*1,0,0,0,kp_s*1,0,0,0,kp_s*1);
-		tf::Matrix3x3 kd = tf::Matrix3x3(kd_s*1,0,0,0,kd_s*1,0,0,0,kd_s*1);
+		tf::Matrix3x3 kp = tf::Matrix3x3(kp_s*1,0,0,0,kp_s*1,0,0,0,kp_s*0.5);
+		tf::Matrix3x3 kd = tf::Matrix3x3(kd_s*1,0,0,0,kd_s*1,0,0,0,kd_s*0.5);
 		geometry_msgs::Twist body_vel;// body velocity from the mocap
 		ros::Time last_body_vel_time;// last time a body velocity was recieved
 		ros::Time curr_body_vel_time;// current time for a recieved body velocity
