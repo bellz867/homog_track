@@ -1218,7 +1218,7 @@ class Controller
 			/********** desired wrt world **********/
 			double zd_init = 1.0; //starting desired height
 			desired_radius = 1.0;// desired radius in meters
-			desired_period = 45;
+			desired_period = 60;
 			desired_body_wrt_world.setOrigin(tf::Vector3(-1*desired_radius,0,zd_init));//start body back 1 m along x and up 2 m
 			R_desired_body_wrt_world.setValue(1,0,0,
 											  0,1,0,
@@ -2701,6 +2701,7 @@ class Controller
 
 };
 
+
 // main
 int main(int argc, char** argv)
 {   
@@ -2709,7 +2710,7 @@ int main(int argc, char** argv)
 	double loop_rate_hz = 30;
 	bool write_to_file = true;
 	
-	std::string filename = "/home/ncr/ncr_ws/src/homog_track/testing_files/experiment_10.txt";
+	std::string filename = "/home/ncr/ncr_ws/src/homog_track/testing_files/experiment_11.txt";
 	if( (std::remove( filename.c_str() ) != 0) && write_to_file)
 	{
 		std::cout << "file does not exist" << std::endl;
