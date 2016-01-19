@@ -1166,7 +1166,7 @@ class Controller
 								<< "EvPhisvd,"
 								<< "Ux," << "Uy," << "Uz,"
 								<< "z_hat_dot,"
-								<< "z_hat"
+								<< "z_hat,"
 								<< "z_tilde"
 								<< "\n";
 					output_file.close();
