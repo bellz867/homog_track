@@ -43,6 +43,7 @@ add_message_files(
   HomogDesired.msg
   ImageProcessingMsg.msg
   DecompMsg.msg
+  RefMsg.msg
 )
 
 add_service_files(
@@ -82,7 +83,7 @@ add_executable(nodetastic src/testing_stuff.cpp)
 target_link_libraries(nodetastic ${catkin_LIBRARIES} ${OpenCV_LIBS})
 add_dependencies(nodetastic ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 
-add_executable(experiment src/experiment_with_ref_set_bebop.cpp)
+add_executable(experiment src/exp_with_ref_set_bebop_gen_des.cpp)
 target_link_libraries(experiment ${catkin_LIBRARIES} ${OpenCV_LIBS})
 add_dependencies(experiment ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 

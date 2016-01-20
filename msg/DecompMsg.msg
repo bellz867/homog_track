@@ -11,3 +11,4 @@ float64 alphac
 float64 alphap
 homog_track/ImageProcessingMsg cam_pixels
 homog_track/ImageProcessingMsg ref_cam_pixels
+std_msgs/Bool decomp_successful

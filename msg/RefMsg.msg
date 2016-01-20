@@ -1,0 +1,9 @@
+Header header
+homog_track/ImageProcessingMsg ref_cam_pixels
+geometry_msgs/Transform reference_wrt_world
+geometry_msgs/Transform red_wrt_reference
+geometry_msgs/Transform green_wrt_reference
+geometry_msgs/Transform cyan_wrt_reference
+geometry_msgs/Transform purple_wrt_reference
+geometry_msgs/Vector3 n_star
+std_msgs/Bool reference_set

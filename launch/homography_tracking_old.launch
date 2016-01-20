@@ -1,0 +1,23 @@
+  <launch>
+    <!-- Image Processing Node -->
+    <node pkg="homog_track" type="image_processing_node" name="image_processing_node" />
+
+    <!-- Sim Node
+    <node pkg="homog_track" type="simulator_node" name="simulator_node" />
+    -->
+
+    <!-- Decompose Node -->
+    <node pkg="homog_track" type="homog_decomp_node" name="homog_decomp_node" />
+  
+    <!-- Desired Node
+    <node pkg="homog_track" type="desired_camera_node" name="desired_camera_node" />
+    -->
+    
+    <!-- Start Desired Node service
+    <node pkg="rosservice" type="rosservice" name="start_desired" args="call /start_desired"/>
+	-->
+	
+    <!-- Command Node-->
+    <node pkg="homog_track" type="controller_node" name="controller_node" output="screen"/>
+
+  </launch>
