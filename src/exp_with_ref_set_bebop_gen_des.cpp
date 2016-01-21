@@ -536,7 +536,7 @@ class HomogDecomp
 		HomogDecomp()
 		{
 			pixel_sub = nh.subscribe("feature_pixels",1, &HomogDecomp::pixels_callback, this);// subscribing to the complete message
-			ref_sub = nh.subscribe("reference_info",1,&HomogDecomp::ref_callback,this);// reference callback
+			ref_sub = nh.subscribe("reference_camera",1,&HomogDecomp::ref_callback,this);// reference callback
 			homog_decomp_pub = nh.advertise<homog_track::DecompMsg>("decomposed_homography",1);// publisher for the decomposed stuff
 			
 			/********** decomp parameters **********/
@@ -874,7 +874,7 @@ class ReferenceSetter
 		tf::TransformListener listener;
 		
 		/********** reference declarations **********/
-		tf::StampedTransform reference_wrt_world, red_wrt_reference, green_wrt_reference, cyan_wrt_reference, purple_wrt_reference; // transforms for reference camera
+		tf::StampedTransform reference_wrt_world, red_wrt_reference, green_wrt_reference, cyan_wrt_reference, purple_wrt_reference, red_wrt_world, green_wrt_world, cyan_wrt_world, purple_wrt_world; // transforms for reference camera and colors
 		tf::Vector3 n_world = tf::Vector3(0,0,-1), n_star = tf::Vector3(0,0,0);//  normal in world frame and normal expressed in reference camera coordinate frame
 		homog_track::ImageProcessingMsg last_cam_pixels;// last pixels recieved from image processing
 		double time_tolerance = (1.0/30.0)*3;// the camera frequency is 30Hz and if the time has passed three frames worth of time then will not set the reference
@@ -887,7 +887,7 @@ class ReferenceSetter
 		{
 			pixel_sub = nh.subscribe("feature_pixels",1, &ReferenceSetter::pixels_callback, this);// subscribing to the complete message
 			joy_sub = nh.subscribe("joy",1,&ReferenceSetter::joy_callback,this);// subscribing to the joy node
-			ref_pub = nh.advertise<homog_track::RefMsg>("reference_info",1);// publisher for the reference information
+			ref_pub = nh.advertise<homog_track::RefMsg>("reference_camera",1);// publisher for the reference information
 		}
 		
 		/********** callback for the pixels from image processing from decomp **********/
@@ -918,14 +918,24 @@ class ReferenceSetter
 						
 						// getting the colors wrt reference
 						br.sendTransform(reference_wrt_world);
-						listener.waitForTransform("reference_image", "red_wrt_world", ros::Time(0), ros::Duration(0.1));//red
-						listener.lookupTransform("reference_image", "red_wrt_world", ros::Time(0), red_wrt_reference);
-						listener.waitForTransform("reference_image", "green_wrt_world", ros::Time(0), ros::Duration(0.1));//green
-						listener.lookupTransform("reference_image", "green_wrt_world", ros::Time(0), red_wrt_reference);
-						listener.waitForTransform("reference_image", "cyan_wrt_world", ros::Time(0), ros::Duration(0.1));//cyan
-						listener.lookupTransform("reference_image", "cyan_wrt_world", ros::Time(0), red_wrt_reference);
-						listener.waitForTransform("reference_image", "purple_wrt_world", ros::Time(0), ros::Duration(0.1));//purple
-						listener.lookupTransform("reference_image", "purple_wrt_world", ros::Time(0), red_wrt_reference);
+						listener.waitForTransform("reference_image", "ugv1", ros::Time(0), ros::Duration(0.1));//red
+						listener.lookupTransform("reference_image", "ugv1", ros::Time(0), red_wrt_reference);
+						listener.waitForTransform("reference_image", "ugv2", ros::Time(0), ros::Duration(0.1));//green
+						listener.lookupTransform("reference_image", "ugv2", ros::Time(0), green_wrt_reference);
+						listener.waitForTransform("reference_image", "ugv3", ros::Time(0), ros::Duration(0.1));//cyan
+						listener.lookupTransform("reference_image", "ugv3", ros::Time(0), cyan_wrt_reference);
+						listener.waitForTransform("reference_image", "ugv4", ros::Time(0), ros::Duration(0.1));//purple
+						listener.lookupTransform("reference_image", "ugv4", ros::Time(0), purple_wrt_reference);
+						
+						// getting colors wrt world
+						listener.waitForTransform("world", "ugv1", ros::Time(0), ros::Duration(0.1));//red
+						listener.lookupTransform("world", "ugv1", ros::Time(0), red_wrt_world);
+						listener.waitForTransform("world", "ugv2", ros::Time(0), ros::Duration(0.1));//green
+						listener.lookupTransform("world", "ugv2", ros::Time(0), green_wrt_world);
+						listener.waitForTransform("world", "ugv3", ros::Time(0), ros::Duration(0.1));//cyan
+						listener.lookupTransform("world", "ugv3", ros::Time(0), cyan_wrt_world);
+						listener.waitForTransform("world", "ugv4", ros::Time(0), ros::Duration(0.1));//purple
+						listener.lookupTransform("world", "ugv4", ros::Time(0), purple_wrt_world);
 						
 						/********** message out **********/
 						// reference pixels
@@ -954,6 +964,22 @@ class ReferenceSetter
 						ref_msg_out.purple_wrt_reference.translation.x = purple_wrt_reference.getOrigin().getX(); ref_msg_out.purple_wrt_reference.translation.y = purple_wrt_reference.getOrigin().getY(); ref_msg_out.purple_wrt_reference.translation.z = purple_wrt_reference.getOrigin().getZ();
 						ref_msg_out.purple_wrt_reference.rotation.x = purple_wrt_reference.getRotation().getX(); ref_msg_out.purple_wrt_reference.rotation.y = purple_wrt_reference.getRotation().getY(); ref_msg_out.purple_wrt_reference.rotation.z = purple_wrt_reference.getRotation().getZ(); ref_msg_out.purple_wrt_reference.rotation.w = purple_wrt_reference.getRotation().getW();
 						
+						// red wrt world
+						ref_msg_out.red_wrt_world.translation.x = red_wrt_world.getOrigin().getX(); ref_msg_out.red_wrt_world.translation.y = red_wrt_world.getOrigin().getY(); ref_msg_out.red_wrt_world.translation.z = red_wrt_world.getOrigin().getZ();
+						ref_msg_out.red_wrt_world.rotation.x = red_wrt_world.getRotation().getX(); ref_msg_out.red_wrt_world.rotation.y = red_wrt_world.getRotation().getY(); ref_msg_out.red_wrt_world.rotation.z = red_wrt_world.getRotation().getZ(); ref_msg_out.red_wrt_world.rotation.w = red_wrt_world.getRotation().getW();
+						
+						// green wrt world
+						ref_msg_out.green_wrt_world.translation.x = green_wrt_world.getOrigin().getX(); ref_msg_out.green_wrt_world.translation.y = green_wrt_world.getOrigin().getY(); ref_msg_out.green_wrt_world.translation.z = green_wrt_world.getOrigin().getZ();
+						ref_msg_out.green_wrt_world.rotation.x = green_wrt_world.getRotation().getX(); ref_msg_out.green_wrt_world.rotation.y = green_wrt_world.getRotation().getY(); ref_msg_out.green_wrt_world.rotation.z = green_wrt_world.getRotation().getZ(); ref_msg_out.green_wrt_world.rotation.w = green_wrt_world.getRotation().getW();
+						
+						// cyan wrt world
+						ref_msg_out.cyan_wrt_world.translation.x = cyan_wrt_world.getOrigin().getX(); ref_msg_out.cyan_wrt_world.translation.y = cyan_wrt_world.getOrigin().getY(); ref_msg_out.cyan_wrt_world.translation.z = cyan_wrt_world.getOrigin().getZ();
+						ref_msg_out.cyan_wrt_world.rotation.x = cyan_wrt_world.getRotation().getX(); ref_msg_out.cyan_wrt_world.rotation.y = cyan_wrt_world.getRotation().getY(); ref_msg_out.cyan_wrt_world.rotation.z = cyan_wrt_world.getRotation().getZ(); ref_msg_out.cyan_wrt_world.rotation.w = cyan_wrt_world.getRotation().getW();
+						
+						// purple wrt world
+						ref_msg_out.purple_wrt_world.translation.x = purple_wrt_world.getOrigin().getX(); ref_msg_out.purple_wrt_world.translation.y = purple_wrt_world.getOrigin().getY(); ref_msg_out.purple_wrt_world.translation.z = purple_wrt_world.getOrigin().getZ();
+						ref_msg_out.purple_wrt_world.rotation.x = purple_wrt_world.getRotation().getX(); ref_msg_out.purple_wrt_world.rotation.y = purple_wrt_world.getRotation().getY(); ref_msg_out.purple_wrt_world.rotation.z = purple_wrt_world.getRotation().getZ(); ref_msg_out.purple_wrt_world.rotation.w = purple_wrt_world.getRotation().getW();
+						
 						// normal
 						ref_msg_out.n_star.x = n_star.getX(); ref_msg_out.n_star.y = n_star.getY(); ref_msg_out.n_star.z = n_star.getZ();
 						
@@ -961,15 +987,16 @@ class ReferenceSetter
 						ref_msg_out.reference_set.data = true;
 						
 						ref_pub.publish(ref_msg_out);// sending the message
+						
+						std::cout << "\n\nreference set\n\n" << std::endl;
 					}
 					catch (tf::TransformException ex)
 					{
-						std::cout << "failed to set reference transform, try again" << std::endl;
+						std::cout << "\n\nfailed to set reference transform, try again\n\n" << std::endl;
 					}
 				}
 			}
-};
-
+		}
 };
 
 /********** Controller **********/
@@ -986,7 +1013,7 @@ class Controller
 		ros::NodeHandle nh;
 		tf::TransformBroadcaster br;
 		tf::TransformListener listener;
-		ros::Subscriber decomp_sub, joy_sub, body_imu_sub, body_mocap_sub, camera_state_sub, image_imu_sub;
+		ros::Subscriber decomp_sub, joy_sub, body_imu_sub, body_mocap_sub, camera_state_sub, image_imu_sub, ref_sub;
 		ros::Publisher takeoff_pub, land_pub, reset_pub, cmd_vel_pub, desired_pose_pub, current_pose_pub, desired_pixels_pub, current_error_pub, vc_marker_pub, wc_marker_pub, vcm_marker_pub, wcm_marker_pub, vcb_marker_pub, wcb_marker_pub, vcbm_marker_pub, wcbm_marker_pub, w_body_o_pub, w_image_o_pub, wcm_o_pub, wcbm_o_pub, ped_dot_pub, ped_dot_num_pub, z_tilde_pub, z_tildem_pub;
 		
 		/********** Time Values **********/
@@ -1039,10 +1066,11 @@ class Controller
 		/********** Reference **********/
 		tf::Vector3 mr_bar_ref, mg_bar_ref, mc_bar_ref, mp_bar_ref;// points wrt reference
 		tf::Vector3 pr_ref, pg_ref, pc_ref, pp_ref;// pixels wrt reference
-		tf::Transform reference_wrt_world, red_wrt_reference; // transform for reference camera and the red marker wrt the reference
+		tf::Transform reference_wrt_world, red_wrt_reference, green_wrt_reference, cyan_wrt_reference, purple_wrt_reference; // transform for reference camera and the red marker wrt the reference
 		tf::Vector3 n_star;
 		tf::Vector3 n_world;
 		ros::Time last_body_pose_time;
+		homog_track::RefMsg ref_msg;// reference message
 		
 		/********** Camera **********/
 		tf::Vector3 mr_bar, mg_bar, mc_bar, mp_bar;// points wrt camera
@@ -1194,6 +1222,7 @@ class Controller
 			write_to_file = write_to_file_des;
 			loop_rate_hz = loop_rate_des;
 			number_of_integrating_samples = loop_rate_hz*0.2;
+			ref_sub = nh.subscribe("reference_camera",1,&Controller::ref_callback,this);// reference callback
 			decomp_sub = nh.subscribe("decomposed_homography",1, &Controller::decomp_callback, this);// subscribing to the decomp message
 			body_imu_sub = nh.subscribe("/bebop/body_vel", 1, &Controller::body_imu_callback, this);// subscribing to the body velocity publisher
 			body_mocap_sub = nh.subscribe("/bebop/pose", 1, &Controller::body_pose_callback, this);// subscribing to the p
@@ -1380,159 +1409,267 @@ class Controller
 				Uvar_samplesm.push_back(tf::Vector3(0,0,0));
 			}
 			
-			
-			
 			/********* marker **********/
 			// from tracking
-			vc_marker.header.frame_id = "bebop_image";
-			vc_marker.frame_locked = true;
-			vc_marker.header.stamp = ros::Time::now();
-			vc_marker.ns = "vc_marker";
-			vc_marker.id = 0;
-			vc_marker.type = visualization_msgs::Marker::ARROW;
-			vc_marker.action = visualization_msgs::Marker::ADD;
-			vc_marker_end.x = 0; vc_marker_end.y = 0; vc_marker_end.z = 0;
-			vc_marker_start.x = 0; vc_marker_start.y = 0; vc_marker_start.z = 0;
-			vc_marker.points.push_back(vc_marker_start);
-			vc_marker.points.push_back(vc_marker_end);
-			vc_marker.scale.x = 0.01;
-			vc_marker.scale.y = 0.01;
-			vc_marker.scale.z = 0.01;
-			vc_marker.color.a = 1.0; // Don't forget to set the alpha!
-			vc_marker.color.r = 0.75;
-			vc_marker.color.g = 0.75;
-			vc_marker.color.b = 0.0;
-			vc_marker.lifetime = ros::Duration();
-			wc_marker.header.frame_id = "bebop_image";
-			wc_marker.frame_locked = true;
-			wc_marker.header.stamp = ros::Time::now();
-			wc_marker.ns = "wc_marker";
-			wc_marker.id = 1;
-			wc_marker.type = visualization_msgs::Marker::ARROW;
-			wc_marker.action = visualization_msgs::Marker::ADD;
-			wc_marker_end.x = 0; wc_marker_end.y = 0; wc_marker_end.z = 0;
-			wc_marker_start.x = 0; wc_marker_start.y = 0; wc_marker_start.z = 0;
-			wc_marker.points.push_back(wc_marker_start);
-			wc_marker.points.push_back(wc_marker_end);
-			wc_marker.scale = vc_marker.scale;
-			wc_marker.color.a = 1.0; // Don't forget to set the alpha!
-			wc_marker.color.r = 0.75;
-			wc_marker.color.g = 0.0;
-			wc_marker.color.b = 0.75;
-			wc_marker.lifetime = vc_marker.lifetime;
+			if (true)
+			{
+				vc_marker.header.frame_id = "bebop_image";
+				vc_marker.frame_locked = true;
+				vc_marker.header.stamp = ros::Time::now();
+				vc_marker.ns = "vc_marker";
+				vc_marker.id = 0;
+				vc_marker.type = visualization_msgs::Marker::ARROW;
+				vc_marker.action = visualization_msgs::Marker::ADD;
+				vc_marker_end.x = 0; vc_marker_end.y = 0; vc_marker_end.z = 0;
+				vc_marker_start.x = 0; vc_marker_start.y = 0; vc_marker_start.z = 0;
+				vc_marker.points.push_back(vc_marker_start);
+				vc_marker.points.push_back(vc_marker_end);
+				vc_marker.scale.x = 0.01;
+				vc_marker.scale.y = 0.01;
+				vc_marker.scale.z = 0.01;
+				vc_marker.color.a = 1.0; // Don't forget to set the alpha!
+				vc_marker.color.r = 0.75;
+				vc_marker.color.g = 0.75;
+				vc_marker.color.b = 0.0;
+				vc_marker.lifetime = ros::Duration();
+				wc_marker.header.frame_id = "bebop_image";
+				wc_marker.frame_locked = true;
+				wc_marker.header.stamp = ros::Time::now();
+				wc_marker.ns = "wc_marker";
+				wc_marker.id = 1;
+				wc_marker.type = visualization_msgs::Marker::ARROW;
+				wc_marker.action = visualization_msgs::Marker::ADD;
+				wc_marker_end.x = 0; wc_marker_end.y = 0; wc_marker_end.z = 0;
+				wc_marker_start.x = 0; wc_marker_start.y = 0; wc_marker_start.z = 0;
+				wc_marker.points.push_back(wc_marker_start);
+				wc_marker.points.push_back(wc_marker_end);
+				wc_marker.scale = vc_marker.scale;
+				wc_marker.color.a = 1.0; // Don't forget to set the alpha!
+				wc_marker.color.r = 0.75;
+				wc_marker.color.g = 0.0;
+				wc_marker.color.b = 0.75;
+				wc_marker.lifetime = vc_marker.lifetime;
+				
+				vcb_marker.header.frame_id = "bebop";
+				vcb_marker.frame_locked = true;
+				vcb_marker.header.stamp = ros::Time::now();
+				vcb_marker.ns = "vcb_marker";
+				vcb_marker.id = 2;
+				vcb_marker.type = visualization_msgs::Marker::ARROW;
+				vcb_marker.action = visualization_msgs::Marker::ADD;
+				vcb_marker_end.x = 0; vcb_marker_end.y = 0; vcb_marker_end.z = 0;
+				vcb_marker_start.x = 0; vcb_marker_start.y = 0; vcb_marker_start.z = 0;
+				vcb_marker.points.push_back(vcb_marker_start);
+				vcb_marker.points.push_back(vcb_marker_end);
+				vcb_marker.scale.x = 0.01;
+				vcb_marker.scale.y = 0.01;
+				vcb_marker.scale.z = 0.01;
+				vcb_marker.color.a = 1.0; // Don't forget to set the alpha!
+				vcb_marker.color.r = 0.0;
+				vcb_marker.color.g = 0.75;
+				vcb_marker.color.b = 0.75;
+				vcb_marker.lifetime = ros::Duration();
+				wcb_marker.header.frame_id = "bebop";
+				wcb_marker.frame_locked = true;
+				wcb_marker.header.stamp = ros::Time::now();
+				wcb_marker.ns = "wcb_marker";
+				wcb_marker.id = 3;
+				wcb_marker.type = visualization_msgs::Marker::ARROW;
+				wcb_marker.action = visualization_msgs::Marker::ADD;
+				wcb_marker_end.x = 0; wcb_marker_end.y = 0; wcb_marker_end.z = 0;
+				wcb_marker_start.x = 0; wcb_marker_start.y = 0; wcb_marker_start.z = 0;
+				wcb_marker.points.push_back(wcb_marker_start);
+				wcb_marker.points.push_back(wcb_marker_end);
+				wcb_marker.scale = vcb_marker.scale;
+				wcb_marker.color.a = 1.0; // Don't forget to set the alpha!
+				wcb_marker.color.r = 0.75;
+				wcb_marker.color.g = 1.0;
+				wcb_marker.color.b = 0.75;
+				wcb_marker.lifetime = vcb_marker.lifetime;
+				
+				
+				// from mocap
+				vcm_marker.header.frame_id = "bebop_image";
+				vcm_marker.frame_locked = true;
+				vcm_marker.header.stamp = ros::Time::now();
+				vcm_marker.ns = "vcm_marker";
+				vcm_marker.id = 4;
+				vcm_marker.type = visualization_msgs::Marker::ARROW;
+				vcm_marker.action = visualization_msgs::Marker::ADD;
+				vcm_marker_end.x = 0; vcm_marker_end.y = 0; vcm_marker_end.z = 0;
+				vcm_marker_start.x = 0; vcm_marker_start.y = 0; vcm_marker_start.z = 0;
+				vcm_marker.points.push_back(vcm_marker_start);
+				vcm_marker.points.push_back(vcm_marker_end);
+				vcm_marker.scale.x = 0.01;
+				vcm_marker.scale.y = 0.01;
+				vcm_marker.scale.z = 0.01;
+				vcm_marker.color.a = 1.0; // Don't forget to set the alpha!
+				vcm_marker.color.r = 0.25;
+				vcm_marker.color.g = 0.25;
+				vcm_marker.color.b = 0.0;
+				vcm_marker.lifetime = ros::Duration();
+				wcm_marker.header.frame_id = "bebop_image";
+				wcm_marker.frame_locked = true;
+				wcm_marker.header.stamp = ros::Time::now();
+				wcm_marker.ns = "wcm_marker";
+				wcm_marker.id = 5;
+				wcm_marker.type = visualization_msgs::Marker::ARROW;
+				wcm_marker.action = visualization_msgs::Marker::ADD;
+				wcm_marker_end.x = 0; wcm_marker_end.y = 0; wcm_marker_end.z = 0;
+				wcm_marker_start.x = 0; wcm_marker_start.y = 0; wcm_marker_start.z = 0;
+				wcm_marker.points.push_back(wcm_marker_start);
+				wcm_marker.points.push_back(wcm_marker_end);
+				wcm_marker.scale = vcm_marker.scale;
+				wcm_marker.color.a = 1.0; // Don't forget to set the alpha!
+				wcm_marker.color.r = 0.25;
+				wcm_marker.color.g = 0.0;
+				wcm_marker.color.b = 0.25;
+				wcm_marker.lifetime = vcm_marker.lifetime;
+				
+				vcbm_marker.header.frame_id = "bebop";
+				vcbm_marker.frame_locked = true;
+				vcbm_marker.header.stamp = ros::Time::now();
+				vcbm_marker.ns = "vcbm_marker";
+				vcbm_marker.id = 6;
+				vcbm_marker.type = visualization_msgs::Marker::ARROW;
+				vcbm_marker.action = visualization_msgs::Marker::ADD;
+				vcbm_marker_end.x = 0; vcbm_marker_end.y = 0; vcbm_marker_end.z = 0;
+				vcbm_marker_start.x = 0; vcbm_marker_start.y = 0; vcbm_marker_start.z = 0;
+				vcbm_marker.points.push_back(vcbm_marker_start);
+				vcbm_marker.points.push_back(vcbm_marker_end);
+				vcbm_marker.scale.x = 0.01;
+				vcbm_marker.scale.y = 0.01;
+				vcbm_marker.scale.z = 0.01;
+				vcbm_marker.color.a = 1.0; // Don't forget to set the alpha!
+				vcbm_marker.color.r = 0.0;
+				vcbm_marker.color.g = 0.25;
+				vcbm_marker.color.b = 0.25;
+				vcbm_marker.lifetime = ros::Duration();
+				wcbm_marker.header.frame_id = "bebop";
+				wcbm_marker.frame_locked = true;
+				wcbm_marker.header.stamp = ros::Time::now();
+				wcbm_marker.ns = "wcbm_marker";
+				wcbm_marker.id = 7;
+				wcbm_marker.type = visualization_msgs::Marker::ARROW;
+				wcbm_marker.action = visualization_msgs::Marker::ADD;
+				wcbm_marker_end.x = 0; wcbm_marker_end.y = 0; wcbm_marker_end.z = 0;
+				wcbm_marker_start.x = 0; wcbm_marker_start.y = 0; wcbm_marker_start.z = 0;
+				wcbm_marker.points.push_back(wcbm_marker_start);
+				wcbm_marker.points.push_back(wcbm_marker_end);
+				wcbm_marker.scale = vcbm_marker.scale;
+				wcbm_marker.color.a = 1.0; // Don't forget to set the alpha!
+				wcbm_marker.color.r = 0.25;
+				wcbm_marker.color.g = 1.0;
+				wcbm_marker.color.b = 0.25;
+				wcbm_marker.lifetime = vcbm_marker.lifetime;
+			}
+		}
+		
+		/********** callback for the reference **********/
+		void ref_callback(const homog_track::RefMsg& msg)
+		{
+			ref_msg = msg;// reference message
 			
-			vcb_marker.header.frame_id = "bebop";
-			vcb_marker.frame_locked = true;
-			vcb_marker.header.stamp = ros::Time::now();
-			vcb_marker.ns = "vcb_marker";
-			vcb_marker.id = 2;
-			vcb_marker.type = visualization_msgs::Marker::ARROW;
-			vcb_marker.action = visualization_msgs::Marker::ADD;
-			vcb_marker_end.x = 0; vcb_marker_end.y = 0; vcb_marker_end.z = 0;
-			vcb_marker_start.x = 0; vcb_marker_start.y = 0; vcb_marker_start.z = 0;
-			vcb_marker.points.push_back(vcb_marker_start);
-			vcb_marker.points.push_back(vcb_marker_end);
-			vcb_marker.scale.x = 0.01;
-			vcb_marker.scale.y = 0.01;
-			vcb_marker.scale.z = 0.01;
-			vcb_marker.color.a = 1.0; // Don't forget to set the alpha!
-			vcb_marker.color.r = 0.0;
-			vcb_marker.color.g = 0.75;
-			vcb_marker.color.b = 0.75;
-			vcb_marker.lifetime = ros::Duration();
-			wcb_marker.header.frame_id = "bebop";
-			wcb_marker.frame_locked = true;
-			wcb_marker.header.stamp = ros::Time::now();
-			wcb_marker.ns = "wcb_marker";
-			wcb_marker.id = 3;
-			wcb_marker.type = visualization_msgs::Marker::ARROW;
-			wcb_marker.action = visualization_msgs::Marker::ADD;
-			wcb_marker_end.x = 0; wcb_marker_end.y = 0; wcb_marker_end.z = 0;
-			wcb_marker_start.x = 0; wcb_marker_start.y = 0; wcb_marker_start.z = 0;
-			wcb_marker.points.push_back(wcb_marker_start);
-			wcb_marker.points.push_back(wcb_marker_end);
-			wcb_marker.scale = vcb_marker.scale;
-			wcb_marker.color.a = 1.0; // Don't forget to set the alpha!
-			wcb_marker.color.r = 0.75;
-			wcb_marker.color.g = 1.0;
-			wcb_marker.color.b = 0.75;
-			wcb_marker.lifetime = vcb_marker.lifetime;
+			/********* update time *********/
+			start_time = msg.header.stamp;
+			start_timem = start_time;
+			current_time = start_time;
+			current_timem = start_time;
+			current_time_d = start_time;
+			last_time = start_time;
+			last_timem = start_time;
+			last_time_d = start_time;//desired last time
 			
+			// reference wrt world
+			reference_wrt_world.setOrigin(tf::Vector3(msg.reference_wrt_world.translation.x, msg.reference_wrt_world.translation.y, msg.reference_wrt_world.translation.z));
+			reference_wrt_world.setRotation(tf::Quaternion(msg.reference_wrt_world.rotation.x, msg.reference_wrt_world.rotation.y, msg.reference_wrt_world.rotation.z, msg.reference_wrt_world.rotation.w));
 			
-			// from mocap
-			vcm_marker.header.frame_id = "bebop_image";
-			vcm_marker.frame_locked = true;
-			vcm_marker.header.stamp = ros::Time::now();
-			vcm_marker.ns = "vcm_marker";
-			vcm_marker.id = 4;
-			vcm_marker.type = visualization_msgs::Marker::ARROW;
-			vcm_marker.action = visualization_msgs::Marker::ADD;
-			vcm_marker_end.x = 0; vcm_marker_end.y = 0; vcm_marker_end.z = 0;
-			vcm_marker_start.x = 0; vcm_marker_start.y = 0; vcm_marker_start.z = 0;
-			vcm_marker.points.push_back(vcm_marker_start);
-			vcm_marker.points.push_back(vcm_marker_end);
-			vcm_marker.scale.x = 0.01;
-			vcm_marker.scale.y = 0.01;
-			vcm_marker.scale.z = 0.01;
-			vcm_marker.color.a = 1.0; // Don't forget to set the alpha!
-			vcm_marker.color.r = 0.25;
-			vcm_marker.color.g = 0.25;
-			vcm_marker.color.b = 0.0;
-			vcm_marker.lifetime = ros::Duration();
-			wcm_marker.header.frame_id = "bebop_image";
-			wcm_marker.frame_locked = true;
-			wcm_marker.header.stamp = ros::Time::now();
-			wcm_marker.ns = "wcm_marker";
-			wcm_marker.id = 5;
-			wcm_marker.type = visualization_msgs::Marker::ARROW;
-			wcm_marker.action = visualization_msgs::Marker::ADD;
-			wcm_marker_end.x = 0; wcm_marker_end.y = 0; wcm_marker_end.z = 0;
-			wcm_marker_start.x = 0; wcm_marker_start.y = 0; wcm_marker_start.z = 0;
-			wcm_marker.points.push_back(wcm_marker_start);
-			wcm_marker.points.push_back(wcm_marker_end);
-			wcm_marker.scale = vcm_marker.scale;
-			wcm_marker.color.a = 1.0; // Don't forget to set the alpha!
-			wcm_marker.color.r = 0.25;
-			wcm_marker.color.g = 0.0;
-			wcm_marker.color.b = 0.25;
-			wcm_marker.lifetime = vcm_marker.lifetime;
+			// red wrt reference
+			red_wrt_reference.setOrigin(tf::Vector3(msg.red_wrt_reference.translation.x, msg.red_wrt_reference.translation.y, msg.red_wrt_reference.translation.z));
+			red_wrt_reference.setRotation(tf::Quaternion(msg.red_wrt_reference.rotation.x, msg.red_wrt_reference.rotation.y, msg.red_wrt_reference.rotation.z, msg.red_wrt_reference.rotation.w));
 			
-			vcbm_marker.header.frame_id = "bebop";
-			vcbm_marker.frame_locked = true;
-			vcbm_marker.header.stamp = ros::Time::now();
-			vcbm_marker.ns = "vcbm_marker";
-			vcbm_marker.id = 6;
-			vcbm_marker.type = visualization_msgs::Marker::ARROW;
-			vcbm_marker.action = visualization_msgs::Marker::ADD;
-			vcbm_marker_end.x = 0; vcbm_marker_end.y = 0; vcbm_marker_end.z = 0;
-			vcbm_marker_start.x = 0; vcbm_marker_start.y = 0; vcbm_marker_start.z = 0;
-			vcbm_marker.points.push_back(vcbm_marker_start);
-			vcbm_marker.points.push_back(vcbm_marker_end);
-			vcbm_marker.scale.x = 0.01;
-			vcbm_marker.scale.y = 0.01;
-			vcbm_marker.scale.z = 0.01;
-			vcbm_marker.color.a = 1.0; // Don't forget to set the alpha!
-			vcbm_marker.color.r = 0.0;
-			vcbm_marker.color.g = 0.25;
-			vcbm_marker.color.b = 0.25;
-			vcbm_marker.lifetime = ros::Duration();
-			wcbm_marker.header.frame_id = "bebop";
-			wcbm_marker.frame_locked = true;
-			wcbm_marker.header.stamp = ros::Time::now();
-			wcbm_marker.ns = "wcbm_marker";
-			wcbm_marker.id = 7;
-			wcbm_marker.type = visualization_msgs::Marker::ARROW;
-			wcbm_marker.action = visualization_msgs::Marker::ADD;
-			wcbm_marker_end.x = 0; wcbm_marker_end.y = 0; wcbm_marker_end.z = 0;
-			wcbm_marker_start.x = 0; wcbm_marker_start.y = 0; wcbm_marker_start.z = 0;
-			wcbm_marker.points.push_back(wcbm_marker_start);
-			wcbm_marker.points.push_back(wcbm_marker_end);
-			wcbm_marker.scale = vcbm_marker.scale;
-			wcbm_marker.color.a = 1.0; // Don't forget to set the alpha!
-			wcbm_marker.color.r = 0.25;
-			wcbm_marker.color.g = 1.0;
-			wcbm_marker.color.b = 0.25;
-			wcbm_marker.lifetime = vcbm_marker.lifetime;
+			// green wrt reference
+			green_wrt_reference.setOrigin(tf::Vector3(msg.green_wrt_reference.translation.x, msg.green_wrt_reference.translation.y, msg.green_wrt_reference.translation.z));
+			green_wrt_reference.setRotation(tf::Quaternion(msg.green_wrt_reference.rotation.x, msg.green_wrt_reference.rotation.y, msg.green_wrt_reference.rotation.z, msg.green_wrt_reference.rotation.w));
+			
+			// cyan wrt reference
+			cyan_wrt_reference.setOrigin(tf::Vector3(msg.cyan_wrt_reference.translation.x, msg.cyan_wrt_reference.translation.y, msg.cyan_wrt_reference.translation.z));
+			cyan_wrt_reference.setRotation(tf::Quaternion(msg.cyan_wrt_reference.rotation.x, msg.cyan_wrt_reference.rotation.y, msg.cyan_wrt_reference.rotation.z, msg.cyan_wrt_reference.rotation.w));
+			
+			// purple wrt reference
+			purple_wrt_reference.setOrigin(tf::Vector3(msg.purple_wrt_reference.translation.x, msg.purple_wrt_reference.translation.y, msg.purple_wrt_reference.translation.z));
+			purple_wrt_reference.setRotation(tf::Quaternion(msg.purple_wrt_reference.rotation.x, msg.purple_wrt_reference.rotation.y, msg.purple_wrt_reference.rotation.z, msg.purple_wrt_reference.rotation.w));
+			
+			// red wrt world
+			red_wrt_world.setOrigin(tf::Vector3(msg.red_wrt_world.translation.x, msg.red_wrt_world.translation.y, msg.red_wrt_world.translation.z));
+			red_wrt_world.setRotation(tf::Quaternion(msg.red_wrt_world.rotation.x, msg.red_wrt_world.rotation.y, msg.red_wrt_world.rotation.z, msg.red_wrt_world.rotation.w));
+			
+			// green wrt world
+			green_wrt_world.setOrigin(tf::Vector3(msg.green_wrt_world.translation.x, msg.green_wrt_world.translation.y, msg.green_wrt_world.translation.z));
+			green_wrt_world.setRotation(tf::Quaternion(msg.green_wrt_world.rotation.x, msg.green_wrt_world.rotation.y, msg.green_wrt_world.rotation.z, msg.green_wrt_world.rotation.w));
+			
+			// cyan wrt world
+			cyan_wrt_world.setOrigin(tf::Vector3(msg.cyan_wrt_world.translation.x, msg.cyan_wrt_world.translation.y, msg.cyan_wrt_world.translation.z));
+			cyan_wrt_world.setRotation(tf::Quaternion(msg.cyan_wrt_world.rotation.x, msg.cyan_wrt_world.rotation.y, msg.cyan_wrt_world.rotation.z, msg.cyan_wrt_world.rotation.w));
+			
+			// purple wrt world
+			purple_wrt_world.setOrigin(tf::Vector3(msg.purple_wrt_world.translation.x, msg.purple_wrt_world.translation.y, msg.purple_wrt_world.translation.z));
+			purple_wrt_world.setRotation(tf::Quaternion(msg.purple_wrt_world.rotation.x, msg.purple_wrt_world.rotation.y, msg.purple_wrt_world.rotation.z, msg.purple_wrt_world.rotation.w));
+			
+			// normal
+			n_star.setValue(msg.n_star.x, msg.n_star.y, msg.n_star.z);
+			
+			// initializing the depth
+			zr_star_hat = 2*red_wrt_reference.getOrigin().getZ();
+			zr_star_hatm = 2*red_wrt_reference.getOrigin().getZ();
+			
+			// initializing the learning parameters to 0s
+			Evs_minus_Phis.clear();
+			Evs_minus_Phis_svds.clear();
+			Us.clear();
+			Evs_minus_Phism.clear();
+			Evs_minus_Phis_svdsm.clear();
+			Usm.clear();
+			
+			for (int ii = 0; ii < number_of_samples; ii++)
+			{
+				// from tracking
+				Evs_minus_Phis.push_back(tf::Vector3(0,0,0));
+				Evs_minus_Phis_svds.push_back(0.0);
+				Us.push_back(tf::Vector3(0,0,0));
+				
+				// from mocap
+				Evs_minus_Phism.push_back(tf::Vector3(0,0,0));
+				Evs_minus_Phis_svdsm.push_back(0.0);
+				Usm.push_back(tf::Vector3(0,0,0));
+			}
+			
+			trapz_timestamps.clear();
+			Ev_samples.clear();
+			Phi_samples.clear();
+			Uvar_samples.clear();
+			trapz_timestampsm.clear();
+			Ev_samplesm.clear();
+			Phi_samplesm.clear();
+			Uvar_samplesm.clear();
+				
+			// initializing the integrating samples to 0
+			for (int ii = 0; ii < number_of_integrating_samples; ii++)
+			{
+				// from tracking
+				trapz_timestamps.push_back(0.0);
+				Ev_samples.push_back(tf::Vector3(0,0,0));
+				Phi_samples.push_back(tf::Vector3(0,0,0));
+				Uvar_samples.push_back(tf::Vector3(0,0,0));
+				
+				// from mocap
+				trapz_timestampsm.push_back(0.0);
+				Ev_samplesm.push_back(tf::Vector3(0,0,0));
+				Phi_samplesm.push_back(tf::Vector3(0,0,0));
+				Uvar_samplesm.push_back(tf::Vector3(0,0,0));
+			}
+			
+			start_controller = true;
 			
 		}
 		
@@ -1562,23 +1699,12 @@ class Controller
 			}
 			catch (tf::TransformException ex)
 			{
-				std::cout << "failed to send camera wrt body m" << std::endl;
+				std::cout << "failed to get camera wrt body m" << std::endl;
 			}
 			if (start_controller)
 			{
-				
-				if (first_runm)
-				{
-					first_runm = false;
-					start_timem = current_timem;
-					last_timem = current_timem;
-				}
-				
 				try
 				{
-					
-					//std::cout << "1: " << ros::Time::now() - start_timem << std::endl;
-					
 					// sending static transforms
 					br.sendTransform(tf::StampedTransform(reference_wrt_world,current_timem,"world", "reference_image"));
 					br.sendTransform(tf::StampedTransform(red_wrt_world, current_timem, "world", "red_wrt_world"));
@@ -1640,8 +1766,7 @@ class Controller
 						std::cout << "mrm_bar x: " << mrm_bar.getX() << " y: " << mrm_bar.getY() << " z: " << mrm_bar.getZ() << std::endl;
 						std::cout << "mrm x: " << mrm.getX() << " y: " << mrm.getY() << " z: " << mrm.getZ() << std::endl;
 						std::cout << "prm x: " << prm.getX() << " y: " << prm.getY() << " z: " << prm.getZ() << std::endl;
-						std::cout << "red_wrt_reference x: " << red_wrt_reference.getOrigin().getX() << " y: " << red_wrt_reference.getOrigin().getY() << " z: " << red_wrt_reference.getOrigin().getZ() << std::endl << std::endl << std::endl ;
-						
+						std::cout << "red_wrt_reference x: " << red_wrt_reference.getOrigin().getX() << " y: " << red_wrt_reference.getOrigin().getY() << " z: " << red_wrt_reference.getOrigin().getZ() << std::endl << std::endl << std::endl;
 					}
 				
 					//std::cout << "2: " << ros::Time::now() - start_timem << std::endl;
@@ -1652,8 +1777,6 @@ class Controller
 				{
 					std::cout << "failed to do transform m" << std::endl;
 				}
-				
-				
 			}
 			
 		}
@@ -1734,13 +1857,6 @@ class Controller
 				}
 				if (rotation_found && start_controller)
 				{
-					if (first_run)
-					{
-						first_run = false;
-						start_time = current_time;
-						last_time = current_time;
-					}
-					
 					try
 					{
 						//std::cout << "entered rotation found" << std::endl;
