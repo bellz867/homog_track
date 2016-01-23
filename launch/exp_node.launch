@@ -3,7 +3,7 @@
   <node pkg="image_view" type="video_recorder" name="video_recorder">
       <remap from="image" to="/bebop/image_raw"/>
       <param name="~fps" value="30"/>
-      <param name="~filename" value="/home/ncr/ncr_ws/experiment_11.avi"/>
+      <param name="~filename" value="/home/ncr/ncr_ws/experiment_13.avi"/>
   </node>
   
  <!-- experiment node -->

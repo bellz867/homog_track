@@ -22,12 +22,13 @@
 #include <std_msgs/Empty.h>
 #include <geometry_msgs/Twist.h>
 #include <sensor_msgs/Imu.h>
+#include <bebop_msgs/Ardrone3CameraStateOrientation.h>
 
 class Joycall
 {
 	public:
 		ros::NodeHandle nh;
-		ros::Subscriber joy_sub, cmd_vel_sub, camera_state_sub, body_vel_sub;
+		ros::Subscriber joy_sub, cmd_vel_sub, camera_state_sub, body_vel_sub, gimbal_sub;
 		ros::Publisher takeoff_pub, land_pub, reset_pub, cmd_vel_pub, camera_state_pub;
 		tf::TransformListener listener;
 		
@@ -36,7 +37,7 @@ class Joycall
 		geometry_msgs::Twist velocity_command;
 		geometry_msgs::Twist gimbal_state_current;
 		geometry_msgs::Twist gimbal_state_desired;
-		int a_button_land_b0 = 0, x_button_set_0_b2 = 0, b_button_reset_b1 = 0, y_button_takeoff_b3 = 0, lb_button_teleop_b4 = 0, rb_button_teleop_b5 = 0;
+		int a_button_land_b0 = 0, x_button = 0, b_button_reset_b1 = 0, y_button_takeoff_b3 = 0, lb_button_teleop_b4 = 0, rb_button_teleop_b5 = 0;
 		double rt_stick_ud_x_a3 = 0, rt_stick_lr_y_a2 = 0, lt_stick_ud_z_a1 = 0, lt_stick_lr_th_a0 = 0, r_trigger = 1, dpad_u = 0, dpad_d = 0;
 		bool start_autonomous = false;
 		bool send_0 = false;
@@ -44,11 +45,14 @@ class Joycall
 		bool recieved_control = false;
 		bool first_run = true;
 		double linear_max = 0.5;// max linear velocity
-		double joy_gain = 0.5;// gain on xbox controller
-		double x_bounds[2] = {-2.5, 2.0};// x world bounds meters
-		double y_bounds[2] = {-1.75, 1.75};// y world bounds meters
-		double z_bounds[2] = {0,3.0};// z position meters
-		double bound_push_back_mag = 0.5;// push back magnitude is effort to push back if boundary is crossed
+		
+		double joy_gain = 1.0;// gain on xbox controller
+		double step_gain = 0.0;
+		
+		double x_bounds[2] = {-1.5, 2.0};// x world bounds meters
+		double y_bounds[2] = {-1.5, 1.5};// y world bounds meters
+		double z_bounds[2] = {0,2.75};// z position meters
+		double bound_push_back_mag = 0.65;// push back magnitude is effort to push back if boundary is crossed
 		tf::Quaternion bound_push_back_out_temp;// holds the quaternion result output after transforming
 		tf::Quaternion bound_push_back_temp;// holds the quaternion form for the push back velocities so it can be transformed
 		geometry_msgs::Twist bound_push_back_cmd;// push back twist message, to be created when the boundary is crossed
@@ -57,11 +61,11 @@ class Joycall
 		bool y_bounds_exceeded[2] = {false, false};// boolean to tell if the y boundary has been exceeded
 		bool z_bounds_exceeded[2] = {false, false};// boolean to tell if the z boundary has been exceeded
 		bool boundary_exceeded = false;// tells if any boundary exceeded
-		double k1 = 1/7.0;// original 1/6.3
-		double kp_s = 2.5;
-		double kd_s = 0.075;
-		tf::Matrix3x3 kp = tf::Matrix3x3(kp_s*1,0,0,0,kp_s*1,0,0,0,kp_s*0.5);
-		tf::Matrix3x3 kd = tf::Matrix3x3(kd_s*1,0,0,0,kd_s*1,0,0,0,kd_s*0.5);
+		double k1 = 1.0/7.0;// original 1/7.0
+		double kp_s = 2.5;//original 2.5
+		double kd_s = 0.075;//original 0.075
+		tf::Matrix3x3 kp = tf::Matrix3x3(kp_s*1,0,0,0,kp_s*1,0,0,0,kp_s*0.6);
+		tf::Matrix3x3 kd = tf::Matrix3x3(kd_s*1,0,0,0,kd_s*1,0,0,0,kd_s*0.6);
 		geometry_msgs::Twist body_vel;// body velocity from the mocap
 		ros::Time last_body_vel_time;// last time a body velocity was recieved
 		ros::Time curr_body_vel_time;// current time for a recieved body velocity
@@ -70,31 +74,36 @@ class Joycall
 		tf::Vector3 last_error;//last error for the pd controller
 		tf::Vector3 errorDot;//derivative of error for the pd controller
 		bool first_body_vel = true;
-		Joycall()
+		
+		Joycall(double step_gain_des)
 		{
+			step_gain = step_gain_des;
 			cmd_vel_sub = nh.subscribe("cmd_vel_from_control",1,&Joycall::cmd_vel_callback,this);
 			cmd_vel_pub = nh.advertise<geometry_msgs::Twist>("/bebop/cmd_vel",1);// publisher for the decomposed stuff
 			takeoff_pub = nh.advertise<std_msgs::Empty>("bebop/takeoff",1);
 			land_pub = nh.advertise<std_msgs::Empty>("bebop/land",1);
 			reset_pub = nh.advertise<std_msgs::Empty>("bebop/reset",1);
-			camera_state_sub = nh.subscribe("/bebop/camera_control",1,&Joycall::camera_state_callback,this);//get the current gimbal desired center
 			camera_state_pub = nh.advertise<geometry_msgs::Twist>("/bebop/camera_control",1);// set the gimbal desired center
 			joy_sub = nh.subscribe("joy",1,&Joycall::joy_callback,this);
 			body_vel_sub = nh.subscribe("/bebop/body_vel",1,&Joycall::body_vel_callback,this);// callback for the body vel
+			gimbal_sub = nh.subscribe("bebop/states/ARDrone3/CameraState/Orientation",1,&Joycall::gimbal_state_callback,this);
 			
 			cmd_vel_pub.publish(geometry_msgs::Twist());// initially sending it a desired command of 0
 			
 			// testing showed that -55 is a pretty good starting angle
-			gimbal_state_current.angular.y = -55;
+			gimbal_state_current.angular.y = -50;
+			
+			
 		}
 		
-		/********** callback for the camera desired gimbal center **********/
-		void camera_state_callback(const geometry_msgs::Twist& msg)
+		/********** callback for the gimbal **********/
+		void gimbal_state_callback(const bebop_msgs::Ardrone3CameraStateOrientation::ConstPtr& msg)
 		{
-			//angular y is tilt: + is down - is up
-			//angular z is pan:+ is left - is right
-			gimbal_state_current = msg;
-			std::cout << "gimbal state: " << msg.angular.y << std::endl;
+			double pan = msg->pan;
+			double tilt = msg->tilt;
+			gimbal_state_current.angular.y = tilt;
+			gimbal_state_current.angular.z = pan;
+			std::cout << "\ngimbal tilt angle: " << gimbal_state_current.angular.y << " pan angle: " << gimbal_state_current.angular.z << std::endl;
 		}
 		
 		/********** callback for the cmd velocity from the autonomy **********/
@@ -102,7 +111,7 @@ class Joycall
 		{
 			error.setValue(msg.linear.x - body_vel.linear.x, msg.linear.y - body_vel.linear.y, msg.linear.z - body_vel.linear.z);
 			std::cout << "error x: " << error.getX() << " y: " << error.getY() << " z: " << error.getZ() << std::endl;
-			
+			std::cout << std::abs(curr_body_vel_time.toSec() - last_body_vel_time.toSec()) << std::endl;
 			// if some time has passed between the last body velocity time and the current body velocity time then will calculate the (feed forward PD)
 			if (std::abs(curr_body_vel_time.toSec() - last_body_vel_time.toSec()) > 0.00001)
 			{	
@@ -143,8 +152,8 @@ class Joycall
 			{
 				land_pub.publish(std_msgs::Empty());
 			}
-			x_button_set_0_b2 = msg.buttons[2];
-			if (x_button_set_0_b2 > 0)
+			x_button = msg.buttons[2];
+			if (x_button > 0)
 			{
 				send_0 = true;
 			}
@@ -222,16 +231,16 @@ class Joycall
 			command_from_xbox.angular.z = -1*joy_gain*lt_stick_lr_th_a0;
 			std::cout << "xbox callback" << std::endl;
 			
-			std::cout << "linear x: " << command_from_xbox.linear.x << std::endl;
-			std::cout << "linear y: " << command_from_xbox.linear.y << std::endl;
-			std::cout << "linear z: " << command_from_xbox.linear.z << std::endl;
-			std::cout << "angular z: " << command_from_xbox.linear.z << std::endl;
+			//std::cout << "linear x: " << command_from_xbox.linear.x << std::endl;
+			//std::cout << "linear y: " << command_from_xbox.linear.y << std::endl;
+			//std::cout << "linear z: " << command_from_xbox.linear.z << std::endl;
+			//std::cout << "angular z: " << command_from_xbox.linear.z << std::endl;
 			
 			if (!start_autonomous)
 			{
 				if (send_0)
 				{
-					command_from_xbox = geometry_msgs::Twist();
+					command_from_xbox.angular.z = -1*step_gain;
 					send_0 = false;
 				}
 				recieved_control = true;
@@ -274,9 +283,44 @@ class Joycall
 int main(int argc, char** argv)
 {   
 	ros::init(argc,argv,"joy_stick_control_node");
-
-	Joycall joycall;
+	
+	bool write_to_file = false;
+	double step_gain_ = 1.0;
+	std::string output_file_name = "/home/ncr/ncr_ws/src/homog_track/testing_files/yawcommand_map_1_0.txt";
+	std::fstream output_file;
+	
+	
+	if( (std::remove( output_file_name.c_str() ) != 0) && write_to_file)
+	{
+		std::cout << "file does not exist" << std::endl;
+	}
+	else
+	{
+		std::cout << "file deleted" << std::endl;
+	}
+	
+	/******************** Writing headers to file ********************/
+	if (write_to_file)
+	{
+		output_file.open(output_file_name, std::fstream::out | std::fstream::app);
+	
+		if (output_file.is_open())
+		{
+			output_file << "time,"
+						<< "x button,"
+						<< "linear vel x," << "linear vel y," << "linear vel z,"
+						<< "linear cmd x," << "linear cmd y," << "linear cmd z,"
+						<< "angular cmd z,"
+						<< "angular vel z"
+						<< "\n";
+			output_file.close();
+		}
+	}
+	
+	Joycall joycall(step_gain_);
 	ros::Rate loop_rate(300);
+	
+	ros::Time start_time = ros::Time::now();
 	
 	while (ros::ok())
 	{
@@ -290,7 +334,6 @@ int main(int argc, char** argv)
 		{
 			std::cout << "faild to get body wrt world in joycall" << std::endl;
 		}
-		
 		
 		// check if upper x boundary exceeded
 		if (joycall.body_wrt_world.getOrigin().getX() >= joycall.x_bounds[1])
@@ -342,16 +385,27 @@ int main(int argc, char** argv)
 		{
 			if (joycall.recieved_control)
 			{
+				
 				joycall.cmd_vel_pub.publish(joycall.command_from_xbox);
 				joycall.recieved_control = false;
 			}
 			if (joycall.recieved_command)
 			{
+				std::cout << "recieved velocity command: " << std::endl;
+				std::cout << "linear x: " << joycall.velocity_command.linear.x << std::endl;
+				std::cout << "linear y: " << joycall.velocity_command.linear.y << std::endl;
+				std::cout << "linear z: " << joycall.velocity_command.linear.z << std::endl;
+				std::cout << "angular z: " << joycall.velocity_command.angular.z << std::endl;
 				joycall.cmd_vel_pub.publish(joycall.velocity_command);
 				joycall.recieved_command = false;
 			}
 			
 		}
+		std::cout << "linear x: " << joycall.command_from_xbox.linear.x << std::endl;
+		std::cout << "linear y: " << joycall.command_from_xbox.linear.y << std::endl;
+		std::cout << "linear z: " << joycall.command_from_xbox.linear.z << std::endl;
+		std::cout << "angular z: " << joycall.command_from_xbox.linear.z << std::endl;
+		
 		
 		if (joycall.boundary_exceeded)
 		{
@@ -371,6 +425,23 @@ int main(int argc, char** argv)
 			joycall.z_bounds_exceeded[0] = false;
 			joycall.z_bounds_exceeded[1] = false;
 		}
+		
+		if (write_to_file)
+		{
+			output_file.open(output_file_name, std::fstream::out | std::fstream::app);
+		}
+		if (output_file.is_open())
+		{
+			output_file  << ros::Time::now().toSec() - start_time.toSec() << "," 
+			<< joycall.x_button << "," 
+			<< joycall.body_vel.linear.x << "," << joycall.body_vel.linear.y << "," << joycall.body_vel.linear.z << ","
+			<< joycall.command_from_xbox.linear.x << "," << joycall.command_from_xbox.linear.y << "," << joycall.command_from_xbox.linear.z << ","
+			<< -1*joycall.command_from_xbox.angular.z << ","
+			<< joycall.body_vel.angular.z << ","
+			<< "\n";
+			output_file.close();
+		}
+		
 		ros::spinOnce();
 		loop_rate.sleep();
 	}

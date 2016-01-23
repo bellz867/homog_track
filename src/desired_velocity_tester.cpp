@@ -21,21 +21,44 @@ int main(int argc, char** argv)
 	ros::NodeHandle nh;
 	ros::Publisher desired_pub = nh.advertise<geometry_msgs::Twist>("cmd_vel_from_control",1);
 	
+	/********** desired wrt world **********/
 	// generator parameters
-	double desired_frequency = 0.5;
-	double desired_mag = 0.5;
+	double desired_period = 5;//period of oscillation
+	double desired_frequency_hz = 1/desired_period;//frequency in hertz
+	double desired_frequency = 2*M_PIl*desired_frequency_hz;//frequency in radians/sec
+	double desired_radius = 1.0;// desired radius for oscillations in meters
+	
 	double start_time = ros::Time::now().toSec();
 	double time_from_start = 0;
 	double desired_vel = 0;
+	
 	geometry_msgs::Twist desired_vel_msg;
+	bool square_wave = true;
+	
 	
 	ros::Rate loop_rate(300);
 	
 	while (ros::ok())
 	{
 		time_from_start = ros::Time::now().toSec() - start_time;//update elapsed time
-		desired_vel = desired_mag*std::sin(2*M_PIl*desired_frequency*time_from_start);//update desired velocitysine wave
-		desired_vel_msg.linear.x = desired_vel;
+		desired_vel = desired_radius*desired_frequency*std::cos(desired_frequency*time_from_start);//update desired wave expressed in world frame
+		
+		if (square_wave)//square wave
+		{
+			if (std::signbit(desired_vel))// if negative will output negative magnitude
+			{
+				desired_vel_msg.linear.x = -1*desired_radius*desired_frequency;
+			}
+			else// otherwise a positive magnitude
+			{
+				desired_vel_msg.linear.x = desired_radius*desired_frequency;
+			}
+		}
+		else//sine wave
+		{
+			desired_vel_msg.linear.x = desired_vel;
+		}
+		
 		desired_vel_msg.linear.y = 0;
 		desired_vel_msg.linear.z = 0;
 		desired_vel_msg.angular.x = 0;

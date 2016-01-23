@@ -26,8 +26,8 @@ template <typename sample_set_type> void shift_sample_set(std::deque<sample_set_
 	sample_set.push_back(new_sample);
 }
 
-/********** Processes incoming images and outputs the pixels **********/
-class ImageProcessing
+/********** simulate pixels and a camera **********/
+class Simulator
 {
 	public:
 		/********** node and topics **********/
@@ -75,12 +75,12 @@ class ImageProcessing
 		tf::Vector3 vc, wc;//linear and angular velocity commands
 		cv::Mat wc_cv;
 		
-		ImageProcessing(double loop_rate_des)
+		Simulator(double loop_rate_des)
 		{
 			loop_rate_hz = loop_rate_des;
 			/********** topics **********/
 			pixel_pub = nh.advertise<homog_track::ImageProcessingMsg>("feature_pixels", 1);
-			cam_vel_sub = nh.subscribe("/cmd_vel", 1, &ImageProcessing::update_camera_pixels, this);
+			cam_vel_sub = nh.subscribe("/cmd_vel", 1, &Simulator::update_camera_pixels, this);
 			
 			/********** markers wrt world **********/
 			P_red_wrt_world = tf::Vector3(-0.05,-0.05,0); P_green_wrt_world = tf::Vector3(-0.05,0.05,0); P_cyan_wrt_world = tf::Vector3(0.05,0.05,0); P_purple_wrt_world = tf::Vector3(0.05,-0.05,0);// homography points wrt world
@@ -212,6 +212,7 @@ class ImageProcessing
 			std::cout << "pixels updated" << std::endl;
 		}
 };
+
 
 /********** Homography Decomposition **********/
 class HomogDecomp
@@ -1294,7 +1295,7 @@ int main(int argc, char** argv)
 	{
 		std::cout << "file deleted or not saving" << std::endl;
 	}
-	ImageProcessing image_processing(loop_rate_hz);// image processing 
+	Simulator image_processing(loop_rate_hz);// image processing 
 	HomogDecomp homog_decomp;// homography decomp
 	Controller controller(loop_rate_hz, write_to_file, filename);// controller
 	
