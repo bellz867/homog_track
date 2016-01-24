@@ -1,0 +1,4 @@
+first order slopes, vel(cmd)
+ x: 17.4626 y: 13.7488 z: 1.0704 yaw: 1.7239
+second order slopes, vel(cmd)
+ x: 17.4569 y: 13.7484 z: 1.016 yaw: 1.7201
