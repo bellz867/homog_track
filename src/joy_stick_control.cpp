@@ -23,12 +23,13 @@
 #include <geometry_msgs/Twist.h>
 #include <sensor_msgs/Imu.h>
 #include <bebop_msgs/Ardrone3CameraStateOrientation.h>
+#include <geometry_msgs/PoseStamped.h>
 
 class Joycall
 {
 	public:
 		ros::NodeHandle nh;
-		ros::Subscriber joy_sub, cmd_vel_sub, camera_state_sub, body_vel_sub, gimbal_sub;
+		ros::Subscriber joy_sub, cmd_vel_sub, camera_state_sub, body_vel_sub, gimbal_sub, body_mocap_sub, body_world_vel_sub;
 		ros::Publisher takeoff_pub, land_pub, reset_pub, cmd_vel_pub, camera_state_pub, error_pub, errorDot_pub;
 		ros::Timer watchdogTimer;
 		tf::TransformListener listener;
@@ -50,13 +51,13 @@ class Joycall
 		bool recieved_command_from_xbox = false;
 		bool first_run = true;
 		
-		double max_vel = 0.4;// max velocity
+		double max_vel = 1;// max velocity
 		
 		double joy_gain = 1.0;// gain on xbox controller
 		double step_gain = 0.0;
 		
 		double x_bounds[2] = {-1.5, 1.5};// x world bounds meters
-		double y_bounds[2] = {-1.25, 1.25};// y world bounds meters
+		double y_bounds[2] = {-1.25, 1.5};// y world bounds meters
 		double z_bounds[2] = {0,2.5};// z position meters
 		
 		double bound_push_back_mag = 0.5;// push back magnitude is effort to push back if boundary is crossed
@@ -96,6 +97,9 @@ class Joycall
 		double last_error_yaw;
 		bool first_body_vel = true;
 		
+		geometry_msgs::Pose body_pose;
+		geometry_msgs::Twist body_world_vel;
+		
 		double wait_time = 1;//wait time of 1 second for the watchdog timer
 		
 		Joycall(double step_gain_des)
@@ -113,6 +117,8 @@ class Joycall
             watchdogTimer = nh.createTimer(ros::Duration(wait_time),&Joycall::timeout,this,false);// Initialize watchdog timer
             error_pub = nh.advertise<geometry_msgs::Twist>("error_twist",1);
             errorDot_pub = nh.advertise<geometry_msgs::Twist>("errorDot_twist",1);
+			body_mocap_sub = nh.subscribe("/bebop/pose", 1, &Joycall::body_pose_callback, this);// subscribing to the p
+			body_world_vel_sub = nh.subscribe("/bebop/vel", 1, &Joycall::body_world_vel_callback, this);// subscribing to the body velocity publisher
 			
 			cmd_vel_pub.publish(geometry_msgs::Twist());// initially sending it a desired command of 0
 		}
@@ -132,6 +138,18 @@ class Joycall
 			gimbal_state_current.angular.y = tilt;
 			gimbal_state_current.angular.z = pan;
 			std::cout << "\ngimbal tilt angle: " << gimbal_state_current.angular.y << " pan angle: " << gimbal_state_current.angular.z << std::endl;
+		}
+		
+		/********** callback for the body pose **********/
+		void body_pose_callback(const geometry_msgs::PoseStampedConstPtr& msg)
+		{
+			body_pose = msg->pose;
+		}
+		
+		/********** callback for the body world vel **********/
+		void body_world_vel_callback(const geometry_msgs::TwistStamped& msg)
+		{
+			body_world_vel = msg.twist;
 		}
 		
 		/********** callback for the cmd velocity from the autonomy **********/
@@ -293,9 +311,9 @@ int main(int argc, char** argv)
 {   
 	ros::init(argc,argv,"joy_stick_control_node");
 	
-	bool write_to_file = false;
+	bool write_to_file = true;
 	double step_gain_ = 1.0;
-	std::string output_file_name = "/home/ncr/ncr_ws/src/homog_track/testing_files/yawcommand_map_1_0.txt";
+	std::string output_file_name = "/home/ncr/ncr_ws/src/homog_track/testing_files/body_world_vel_test_5.txt";
 	std::fstream output_file;
 	
 	
@@ -316,11 +334,9 @@ int main(int argc, char** argv)
 		if (output_file.is_open())
 		{
 			output_file << "time,"
-						<< "x button,"
+						<< "right bumper,"
 						<< "linear vel x," << "linear vel y," << "linear vel z,"
-						<< "linear cmd x," << "linear cmd y," << "linear cmd z,"
-						<< "angular cmd z,"
-						<< "angular vel z"
+						<< "linear pose x," << "linear pose y," << "linear pose z,"
 						<< "\n";
 			output_file.close();
 		}
@@ -468,11 +484,9 @@ int main(int argc, char** argv)
 		if (output_file.is_open())
 		{
 			output_file  << ros::Time::now().toSec() - start_time.toSec() << "," 
-			<< joycall.x_button << "," 
-			<< joycall.body_vel.linear.x << "," << joycall.body_vel.linear.y << "," << joycall.body_vel.linear.z << ","
-			<< joycall.command_out.linear.x << "," << joycall.command_out.linear.y << "," << joycall.command_out.linear.z << ","
-			<< -1*joycall.command_out.angular.z << ","
-			<< joycall.body_vel.angular.z << ","
+			<< joycall.right_bumper << "," 
+			<< joycall.body_world_vel.linear.x << "," << joycall.body_world_vel.linear.y << "," << joycall.body_world_vel.linear.z << ","
+			<< joycall.body_pose.position.x << "," << joycall.body_pose.position.y << "," << joycall.body_pose.position.z << ","
 			<< "\n";
 			output_file.close();
 		}

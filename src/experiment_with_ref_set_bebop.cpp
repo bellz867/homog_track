@@ -1115,6 +1115,7 @@ class Controller
 		tf::TransformListener listener;
 		ros::Subscriber decomp_sub, joy_sub, body_imu_sub, body_mocap_sub, camera_state_sub, image_imu_sub, gimbal_sub;
 		ros::Publisher takeoff_pub, land_pub, reset_pub, cmd_vel_pub, desired_pose_pub, current_pose_pub, desired_pixels_pub, current_error_pub, vc_marker_pub, wc_marker_pub, vcm_marker_pub, wcm_marker_pub, vcb_marker_pub, wcb_marker_pub, vcbm_marker_pub, wcbm_marker_pub, w_body_o_pub, w_image_o_pub, wcm_o_pub, wcbm_o_pub, ped_dot_pub, ped_dot_num_pub, z_tilde_pub, z_tildem_pub, min_svd_pub, min_svdm_pub;
+		ros::Timer estimateTimer;
 		
 		/********** Time Values **********/
 		ros::Time last_time;// last time the camera was updated
@@ -1132,17 +1133,17 @@ class Controller
 		std::string output_file_name; // file name
 		
 		/********** Gains **********/
-		double Kws = 0.008;// K_w scalar
+		double Kws = 0.8;// K_w scalar
 		tf::Matrix3x3 Kw = tf::Matrix3x3(Kws,0,0,
 										 0,Kws,0,
 										 0,0,Kws);// rotational gain matrix initialize to identity
-		double Kvs = 0.003;
+		double Kvs = 0.5;
 		tf::Matrix3x3 Kv = tf::Matrix3x3(Kvs,0,0,
 										 0,Kvs,0,
 										 0,0,5*Kvs);// linear velocity gain matrix
 
-		double gamma_1 = 0.00001;// control gains for the z_star_hat_dot calculation
-		double gamma_2 = 100;
+		double gamma_1 = 0.0001;// control gains for the z_star_hat_dot calculation
+		double gamma_2 = 10;
 		double zr_star_hat = 2;// current value for zr_star_hat
 		double zr_star_hatm = 2;// current value for zr_star_hat from mocap
 		
@@ -1325,6 +1326,9 @@ class Controller
 		bool start_track_output = false;// uses the tracking as output of controller
 		bool start_record_stack_data = false;// used to start recording stack data
 		
+		bool update_track_timer = false;
+		bool update_mocap_timer = false;
+		
 		/********** markers **********/
 		visualization_msgs::Marker vc_marker, wc_marker, vcm_marker, wcm_marker, vcb_marker, wcb_marker, vcbm_marker, wcbm_marker;
 		geometry_msgs::Point vc_marker_start, vc_marker_end, wc_marker_start, wc_marker_end, vcm_marker_start, vcm_marker_end, wcm_marker_start, wcm_marker_end, vcb_marker_start, vcb_marker_end, wcb_marker_start, wcb_marker_end, vcbm_marker_start, vcbm_marker_end, wcbm_marker_start, wcbm_marker_end;
@@ -1339,11 +1343,9 @@ class Controller
 			
 			decomp_sub = nh.subscribe("decomposed_homography",1, &Controller::decomp_callback, this);// subscribing to the decomp message
 			body_imu_sub = nh.subscribe("/bebop/body_vel", 1, &Controller::body_imu_callback, this);// subscribing to the body velocity publisher
-			body_mocap_sub = nh.subscribe("/bebop/pose", 1, &Controller::body_pose_callback, this);// subscribing to the p
 			image_imu_sub = nh.subscribe("/bebop_image/body_vel",1,&Controller::image_imu_callback,this);// subscribing to the image velocity publisher
 			joy_sub = nh.subscribe("joy",1,&Controller::joy_callback,this);//subscribing to the joy node
 			gimbal_sub = nh.subscribe("bebop/states/ARDrone3/CameraState/Orientation",1,&Controller::gimbal_state_callback,this);
-			
 			cmd_vel_pub = nh.advertise<geometry_msgs::Twist>("cmd_vel_from_control",1);// publisher for the decomposed stuff
 			desired_pose_pub = nh.advertise<geometry_msgs::Pose>("desired_pose",1);//desire pose message
 			desired_pixels_pub = nh.advertise<homog_track::ImageProcessingMsg>("desired_pixels",1);//desire pixels message
@@ -1370,6 +1372,7 @@ class Controller
 		    z_tildem_pub = nh.advertise<std_msgs::Float64>( "z_tilde_m", 1 );
 		    min_svd_pub = nh.advertise<std_msgs::Float64>("min_svd",1);
 		    min_svdm_pub = nh.advertise<std_msgs::Float64>("min_svd_m",1);
+		    //estimateTimer = nh.createTimer(ros::Duration(wait_time),&Controller::updateEstimate,this,false);// Initialize watchdog timer
 				
 			//camera_state_sub = nh.subscribe("/bebop/camera_control",1,&Controller::camera_state_callback,this);//get the current gimbal desired center
 			/********** Set transform for body wrt world from mocap and calculated **********/
@@ -1472,16 +1475,15 @@ class Controller
 			camera_wrt_camera_init.setOrigin(tf::Vector3(0,0,0));
 
 			/********** desired wrt world **********/
-			double xd_init = -0.5; // starting desired x position
+			double xd_init = -1; // starting desired x position
 			double yd_init = 0;// starting y position
 			double zd_init = 1.5; //starting desired height
-			//desired_radius = 0.;// desired radius for oscillations in meters
-			desired_radius = 0; //0.75;// desired radius for oscillations in meters
-			desired_period = 120;// period in seconds
+			desired_radius = 1;// desired radius for oscillations in meters
+			desired_period = 60;// period in seconds
 			desired_body_wrt_world.setIdentity();
 			desired_body_wrt_world.setOrigin(tf::Vector3(xd_init,yd_init,zd_init));// set the desired origin
 			
-			desired_frequency_hz = 0; // 1/desired_period;//Hz
+			desired_frequency_hz = 1/desired_period;//Hz
 			desired_frequency = 2*M_PIl*desired_frequency_hz;//radians/sec
 		
 			// initializing the constant part of Lv
@@ -1680,6 +1682,15 @@ class Controller
 				wcbm_marker.lifetime = vcbm_marker.lifetime;
 			}
 		}
+		
+		///********** callback for the watchdog timer **********/
+		//void updateEstimate(const ros::TimerEvent& event)
+	    //{
+	        
+	        //std::cout << "\ntimer callback" << std::endl;
+	        
+	        
+	    //}
 		
 		/********** callback for the gimbal angle **********/
 		void gimbal_state_callback(const bebop_msgs::Ardrone3CameraStateOrientation::ConstPtr& msg)
@@ -2059,8 +2070,8 @@ class Controller
 					
 					std::cout << "reference red z: " << red_wrt_reference.getOrigin().getZ() << std::endl;
 					// setting the desired
-					zr_star_hat = 20*red_wrt_reference.getOrigin().getZ();
-					zr_star_hatm = 20*red_wrt_reference.getOrigin().getZ();
+					zr_star_hat = 0*red_wrt_reference.getOrigin().getZ();
+					zr_star_hatm = 0*red_wrt_reference.getOrigin().getZ();
 					
 					start_controller = true;
 				}
@@ -2995,7 +3006,6 @@ class Controller
 			//std::cout << "linear z out: " << velocity_command_out.linear.z << std::endl;
 			//std::cout << "angular z out: " << velocity_command_out.angular.z << std::endl;
 		}
-
 };
 
 
@@ -3005,10 +3015,11 @@ int main(int argc, char** argv)
 	ros::init(argc,argv,"experiment_node");
 
 	double loop_rate_hz = 30;
+	double mocap_loop_rate_hz = 1000;
 	bool write_to_file = true;
 	bool use_simulator = false;
 	
-	std::string filename = "/home/ncr/ncr_ws/src/homog_track/testing_files/experiment_14.txt";
+	std::string filename = "/home/ncr/ncr_ws/src/homog_track/testing_files/experiment_15.txt";
 	if( (std::remove( filename.c_str() ) != 0) && write_to_file)
 	{
 		std::cout << "file does not exist" << std::endl;
@@ -3024,7 +3035,7 @@ int main(int argc, char** argv)
 	HomogDecomp homog_decomp;// homography decomp
 	Controller controller(loop_rate_hz, write_to_file, filename);// controller
 	
-	ros::Rate loop_rate(loop_rate_hz*10);
+	ros::Rate loop_rate(mocap_loop_rate_hz);
 	
 	while (ros::ok())
 	{
