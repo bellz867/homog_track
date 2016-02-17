@@ -1,13 +1,20 @@
  <launch>
- <!-- Start the camera recorder -->
+ <!-- Start the camera recorder 
   <node pkg="image_view" type="video_recorder" name="video_recorder">
       <remap from="image" to="/bebop/image_raw"/>
       <param name="~fps" value="30"/>
       <param name="~filename" value="/home/ncr/ncr_ws/experiment_13.avi"/>
   </node>
-  
+  -->
  <!-- experiment node -->
   <node pkg="homog_track" type="experiment" name="experiment" output="screen">
+  <param name="gamma_1" value="0.00001"/>
+  <param name="gamma_2" value="10.0"/>
+  <param name="Kws" value="0.5"/>
+  <param name="Kvs" value="0.2"/>
+  <param name="integration_window" value="0.75"/>
+  <param name="number_of_samples" value="200"/>
+
   </node>
 
 </launch>

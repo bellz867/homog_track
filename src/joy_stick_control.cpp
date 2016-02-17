@@ -56,8 +56,8 @@ class Joycall
 		double joy_gain = 1.0;// gain on xbox controller
 		double step_gain = 0.0;
 		
-		double x_bounds[2] = {-1.5, 1.5};// x world bounds meters
-		double y_bounds[2] = {-1.25, 1.5};// y world bounds meters
+		double x_bounds[2] = {-1.25, 1.25};// x world bounds meters
+		double y_bounds[2] = {-1.25, 1.25};// y world bounds meters
 		double z_bounds[2] = {0,2.5};// z position meters
 		
 		double bound_push_back_mag = 0.5;// push back magnitude is effort to push back if boundary is crossed
@@ -316,7 +316,6 @@ int main(int argc, char** argv)
 	std::string output_file_name = "/home/ncr/ncr_ws/src/homog_track/testing_files/body_world_vel_test_5.txt";
 	std::fstream output_file;
 	
-	
 	if( (std::remove( output_file_name.c_str() ) != 0) && write_to_file)
 	{
 		std::cout << "file does not exist" << std::endl;
@@ -344,10 +343,36 @@ int main(int argc, char** argv)
 	
 	Joycall joycall(step_gain_);
 	ros::Rate loop_rate(300);
+    
+    bool markers_found = false;
+    tf::StampedTransform red_wrt_world, green_wrt_world, cyan_wrt_world, purple_wrt_world;
+    red_wrt_world.setIdentity(); green_wrt_world.setIdentity(); cyan_wrt_world.setIdentity(); purple_wrt_world.setIdentity();
+    try
+    {
+        // read turtle bot poses
+        joycall.listener.waitForTransform("world", "ugv1", ros::Time(0), ros::Duration(5));
+        joycall.listener.lookupTransform("world", "ugv1", ros::Time(0), red_wrt_world);
+        joycall.listener.waitForTransform("world", "ugv2", ros::Time(0), ros::Duration(5));
+        joycall.listener.lookupTransform("world", "ugv2", ros::Time(0), green_wrt_world);
+        joycall.listener.waitForTransform("world", "ugv3", ros::Time(0), ros::Duration(5));
+        joycall.listener.lookupTransform("world", "ugv3", ros::Time(0), cyan_wrt_world);
+        joycall.listener.waitForTransform("world", "ugv4", ros::Time(0), ros::Duration(5));
+        joycall.listener.lookupTransform("world", "ugv4", ros::Time(0), purple_wrt_world);
+        markers_found = true;
+        
+    }
+    catch (tf::TransformException ex)
+    {
+        std::cout << "failed to get marker positions" << std::endl;
+        markers_found = false;
+    }
+    
+    double marker_center[2] = {(red_wrt_world.getOrigin().getX() + green_wrt_world.getOrigin().getX() + cyan_wrt_world.getOrigin().getX() + purple_wrt_world.getOrigin().getX())/4.0,
+                               (red_wrt_world.getOrigin().getY() + green_wrt_world.getOrigin().getY() + cyan_wrt_world.getOrigin().getY() + purple_wrt_world.getOrigin().getY())/4.0};// use the center of the markers as the center of the circle
 	
 	ros::Time start_time = ros::Time::now();
 	
-	while (ros::ok())
+	while (ros::ok() && markers_found)
 	{
 		bool send_command = false;
 		
@@ -363,28 +388,28 @@ int main(int argc, char** argv)
 		}
 		
 		// check if upper x boundary exceeded
-		if (joycall.body_wrt_world.getOrigin().getX() >= joycall.x_bounds[1])
+		if (joycall.body_wrt_world.getOrigin().getX() >= joycall.x_bounds[1]-marker_center[0])
 		{
 			joycall.bound_push_back_temp.setX(-1*joycall.bound_push_back_mag);
 			joycall.x_bounds_exceeded[1] = true;
 		}
 		
 		// check if upper x lower boundary exceeded
-		if ((joycall.body_wrt_world.getOrigin().getX() <= joycall.x_bounds[0]) && !joycall.x_bounds_exceeded[1])
+		if ((joycall.body_wrt_world.getOrigin().getX() <= joycall.x_bounds[0]-marker_center[0]) && !joycall.x_bounds_exceeded[1])
 		{
 			joycall.bound_push_back_temp.setX(joycall.bound_push_back_mag);
 			joycall.x_bounds_exceeded[0] = true;
 		}
 		
 		// check if upper y boundary exceeded
-		if (joycall.body_wrt_world.getOrigin().getY() >= joycall.y_bounds[1])
+		if (joycall.body_wrt_world.getOrigin().getY() >= joycall.y_bounds[1]-marker_center[1])
 		{
 			joycall.bound_push_back_temp.setY(-1*joycall.bound_push_back_mag);
 			joycall.y_bounds_exceeded[1] = true;
 		}
 		
 		// check if upper y lower boundary exceeded
-		if ((joycall.body_wrt_world.getOrigin().getY() <= joycall.y_bounds[0]) && !joycall.y_bounds_exceeded[1])
+		if ((joycall.body_wrt_world.getOrigin().getY() <= joycall.y_bounds[0]-marker_center[1]) && !joycall.y_bounds_exceeded[1])
 		{
 			joycall.bound_push_back_temp.setY(joycall.bound_push_back_mag);
 			joycall.y_bounds_exceeded[0] = true;
