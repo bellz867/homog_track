@@ -56,7 +56,7 @@ class Joycall
 		double joy_gain = 1.0;// gain on xbox controller
 		double step_gain = 0.0;
 		
-		double x_bounds[2] = {-1.25, 1.25};// x world bounds meters
+		double x_bounds[2] = {-1.75, 1.25};// x world bounds meters
 		double y_bounds[2] = {-1.25, 1.25};// y world bounds meters
 		double z_bounds[2] = {0,2.5};// z position meters
 		

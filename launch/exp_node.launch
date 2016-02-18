@@ -8,13 +8,14 @@
   -->
  <!-- experiment node -->
   <node pkg="homog_track" type="experiment" name="experiment" output="screen">
-  <param name="gamma_1" value="0.00001"/>
+  <param name="gamma_1" value="0.000001"/>
   <param name="gamma_2" value="10.0"/>
   <param name="Kws" value="0.5"/>
-  <param name="Kvs" value="0.2"/>
-  <param name="integration_window" value="0.75"/>
-  <param name="number_of_samples" value="200"/>
+  <param name="Kvs" value="2.0"/>
+  <param name="integration_window" value="1.0"/>
+  <param name="number_of_samples" value="100"/>
 
   </node>
 
 </launch>
+

@@ -6,6 +6,7 @@
 #include <fstream>
 #include <algorithm>
 
+
 // ros and opencv includes for using opencv and ros
 #include <ros/ros.h>
 #include <ros/console.h>
@@ -902,6 +903,7 @@ class HomogDecomp
 				//std::cout << "before find homography" << std::endl;
 				try
 				{
+                    bool negate_alpha = false;
                     cv::Mat pr_m_G, pg_m_G, pc_m_G, pp_m_G;
 					/********** following the process outlined in the reference **********/			
 					G = cv::findHomography(ref_pixels,pixels,0);// finding the perspective homography
@@ -915,16 +917,16 @@ class HomogDecomp
                     pc_m_G = pc_m_G/pc_m_G.at<double>(2,0);
                     pp_m_G = pp_m_G/pp_m_G.at<double>(2,0);
                     
-                    std::cout << "\nred pixels from camera\n" << pr_m << std::endl;
-                    std::cout << "red pixels from G\n" << pr_m_G << std::endl;
-                    std::cout << "\ngreen pixels from camera\n" << pg_m << std::endl;
-                    std::cout << "green pixels from G\n" << pg_m_G << std::endl;
-                    std::cout << "\ncyan pixels from camera\n" << pc_m << std::endl;
-                    std::cout << "cyan pixels from G\n" << pc_m_G << std::endl;
-                    std::cout << "\npurple pixels from camera\n" << pp_m << std::endl;
-                    std::cout << "purple pixels from G\n" << pp_m_G << std::endl;
+                    //std::cout << "\nred pixels from camera\n" << pr_m << std::endl;
+                    //std::cout << "red pixels from G\n" << pr_m_G << std::endl;
+                    //std::cout << "\ngreen pixels from camera\n" << pg_m << std::endl;
+                    //std::cout << "green pixels from G\n" << pg_m_G << std::endl;
+                    //std::cout << "\ncyan pixels from camera\n" << pc_m << std::endl;
+                    //std::cout << "cyan pixels from G\n" << pc_m_G << std::endl;
+                    //std::cout << "\npurple pixels from camera\n" << pp_m << std::endl;
+                    //std::cout << "purple pixels from G\n" << pp_m_G << std::endl;
                     
-                    std::cout << "G:\n" << G << std::endl;
+                    //std::cout << "G:\n" << G << std::endl;
 					//std::cout << "after find homography" << std::endl;
 					H_hat = (A.inv(cv::DECOMP_LU)*G)*A;// finding the approximate of the euclidean homography
 					// getting the svd of the approximate
@@ -940,16 +942,56 @@ class HomogDecomp
 					svds.erase(svds.begin(),svds.end());
 					H = (1.0/gamma_h)*H_hat;
 					successful_decomp = cv::decomposeHomographyMat(G,A,R,T,n);// decompose homography into 4 solutions
-					std::cout << "\n\n\n\nafter decompose homography matrix value is " << successful_decomp << std::endl;
-                    
-                    std::auto_ptr<cv::HomographyDecomposition::HomographyDecomp> cv::HomographyDecomposition::hdecomp(new  cv::HomographyDecomposition::HomographyDecompZhang);
-
-                    std::vector<cv::HomographyDecomposition::CameraMotion> motions;
-                    hdecomp->decomposeHomography(H, K, motions);
-                    R = motions.R;
-                    t = motions.t;
-                    n = motions.n;
-                    
+					//std::cout << "\n\n\n\nafter decompose homography matrix value is " << successful_decomp << std::endl;
+                    try
+                    {
+                        std::vector<std::string> Solution_names = {"Solution_1","Solution__2","Solution___3","Solution____4"};
+                        tf::StampedTransform camera_wrt_reference_calc_temp;
+                        listener.waitForTransform("reference_image", "bebop_image", ros::Time(0), ros::Duration(0.1));
+                        listener.lookupTransform("reference_image", "bebop_image", ros::Time(0), camera_wrt_reference_calc_temp);
+                        for (int jj = 0; jj < R.size();jj++)
+                        {
+                            tf::Matrix3x3 R_fc_temp;
+                            tf::Quaternion Q_cf_temp;
+                            tf::Transform Solution_temp;
+                            //std::cout << "before" << std::endl;
+                            //std::cout << Solution_names.at(jj) << std::endl << "R \n"<< R.at(jj).t() << std::endl;
+                            //std::cout << "determinant " << cv::determinant(R.at(jj).t()) << std::endl;
+                            //std::cout << "t\n" << T.at(jj) << std::endl;
+                            //std::cout << "n\n" << n.at(jj) << std::endl;
+                            for (int ii = 0; ii<9; ii++)
+                            {
+                                R_fc_temp[ii/3][ii%3] = R.at(jj).at<double>(ii/3,ii%3);
+                            }
+                            (R_fc_temp.transpose()).getRotation(Q_cf_temp);// take transpose to get camera wrt reference
+                            Solution_temp.setOrigin(camera_wrt_reference_calc_temp.getOrigin());// set the origin
+                            Solution_temp.setRotation(Q_cf_temp);// set the rotation
+                            br.sendTransform(tf::StampedTransform(Solution_temp, ros::Time::now(), "reference_image", Solution_names.at(jj) + "_before"));
+                            if (cv::determinant(R.at(jj).t()) < 0)
+                            {
+                                R.at(jj) = -1.0*R.at(jj);
+                                T.at(jj) = -1.0*T.at(jj);
+                                negate_alpha = true;
+                            }
+                            for (int ii = 0; ii<9; ii++)
+                            {
+                                R_fc_temp[ii/3][ii%3] = R.at(jj).at<double>(ii/3,ii%3);
+                            }
+                            (R_fc_temp.transpose()).getRotation(Q_cf_temp);// take transpose to get camera wrt reference
+                            //std::cout << "after" << std::endl;
+                            //std::cout << Solution_names.at(jj) << std::endl << "R \n"<< R.at(jj).t() << std::endl;
+                            //std::cout << "determinant " << cv::determinant(R.at(jj).t()) << std::endl;
+                            //std::cout << "t\n" << T.at(jj) << std::endl;
+                            //std::cout << "n\n" << n.at(jj) << std::endl;
+                            Solution_temp.setOrigin(camera_wrt_reference_calc_temp.getOrigin());// set the origin
+                            Solution_temp.setRotation(Q_cf_temp);// set the rotation
+                            br.sendTransform(tf::StampedTransform(Solution_temp, ros::Time::now(), "reference_image", Solution_names.at(jj) + "_after"));
+                        }
+                    }
+                    catch (tf::TransformException ex)
+                    {
+                        std::cout << "failed to get reference tf deomposition class" << std::endl; 
+                    }
                     
 					// if the decomp is successful will find the solutions
 					if (successful_decomp > 0)
@@ -959,7 +1001,16 @@ class HomogDecomp
 						alpha_green = mg_norm.at<double>(2,0)/((H.row(2)).dot(mg_ref_norm.t()));
 						alpha_cyan = mc_norm.at<double>(2,0)/((H.row(2)).dot(mc_ref_norm.t()));
 						alpha_purple = mp_norm.at<double>(2,0)/((H.row(2)).dot(mp_ref_norm.t()));
+                        if (negate_alpha)
+                        {
+                            alpha_red = -1.0*alpha_red;
+                            alpha_green = -1.0*alpha_green;
+                            alpha_cyan = -1.0*alpha_cyan;
+                            alpha_purple = -1.0*alpha_purple;
+                        }
 						
+                        //std::cout << "alpha red" << alpha_red << std::endl;
+                        
 						//std::cout << "after alpha calcs" << std::endl;
 						
 						// finding the solutions that give the positive results
@@ -1127,33 +1178,6 @@ class HomogDecomp
 			decomposed_msg.header.frame_id = "decomp_message";
 			decomposed_msg.decomp_successful.data = true;
 			homog_decomp_pub.publish(decomposed_msg);// sending the message
-            
-            
-            std::vector<std::string> Solution_names = {"Solution_1","Solution__2","Solution___3","Solution____4"};
-            try
-            {
-                tf::StampedTransform camera_wrt_reference_calc_temp;
-                listener.waitForTransform("reference_image", "bebop_image", ros::Time(0), ros::Duration(0.1));
-                listener.lookupTransform("reference_image", "bebop_image", ros::Time(0), camera_wrt_reference_calc_temp);
-                for (int jj = 0; jj < R.size();jj++)
-                {
-                    tf::Matrix3x3 R_fc_temp;
-                    tf::Quaternion Q_cf_temp;
-                    tf::Transform Solution_temp;
-                    for (int ii = 0; ii<9; ii++)
-                    {
-                        R_fc_temp[ii/3][ii%3] = R.at(jj).at<double>(ii/3,ii%3);
-                    }
-                    (R_fc_temp.transpose()).getRotation(Q_cf_temp);// take transpose to get camera wrt reference
-                    Solution_temp.setOrigin(camera_wrt_reference_calc_temp.getOrigin());// set the origin
-                    Solution_temp.setRotation(Q_cf_temp);// set the rotation
-                    br.sendTransform(tf::StampedTransform(Solution_temp, ros::Time::now(), "reference_image", Solution_names.at(jj)));
-                }
-            }
-            catch (tf::TransformException ex)
-            {
-                std::cout << "failed to get reference tf deomposition class" << std::endl; 
-            }
 		}
 };
 
@@ -1383,7 +1407,7 @@ class Controller
 		std_msgs::Float64 z_tilde, z_tildem;
 		bool start_mocap_output = false;// uses the mocap as output of controller
 		bool start_track_output = false;// uses the tracking as output of controller
-		bool start_record_stack_data = true;// used to start recording stack data
+		bool start_record_stack_data = false;// used to start recording stack data
 		
 		bool update_track_timer = false;
 		bool update_mocap_timer = false;
@@ -2179,7 +2203,7 @@ class Controller
                     desired_body_wrt_world.setIdentity();
                     desired_body_wrt_world.setOrigin(tf::Vector3(orig_init[0], orig_init[1], orig_init[2]));// set the desired origin
                     desired_period[0] = 0.0;//30.0; // period for x
-                    desired_period[1] = 60.0; // period for y
+                    desired_period[1] = 40.0; // period for y
                     desired_period[2] = 0.0;//30.0; // period for z
                     desired_radius[0] = 0.2; // radius for x
                     desired_radius[1] = -1*orig_init_t[0]; // radius for y
@@ -2476,12 +2500,14 @@ class Controller
 				//tf::Vector3 vc_term2_temp = (1/alpha_red)*(Lv.inverse()*(phi*red_wrt_reference.getOrigin().getZ()));// term 2 for the vc calculation
 				tf::Vector3 vc_term2_temp = (1/alpha_red)*(Lv.inverse()*(phi*zr_star_hat));// term 2 for the vc calculation
 				vc = vc_term1_temp + vc_term2_temp;// sum them together for vc
-				//std::cout << "\n\npe:\n x: " << pe.getX() << " y: " << pe.getY() << " z: " << pe.getZ() << std::endl;
-				//std::cout << "ped:\n x: " << ped.getX() << " y: " << ped.getY() << " z: " << ped.getZ() << std::endl;
-				//std::cout << "ev:\n x: " << ev.getX() << " y: " << ev.getY() << " z: " << ev.getZ() << std::endl;
-				//std::cout << "phi:\n x: " << phi.getX() << " y: " << phi.getY() << " z: " << phi.getZ() << std::endl;
-				//std::cout << "vc term1:\n x: " << vc_term1_temp.getX() << " y: " << vc_term1_temp.getY() << " z: " << vc_term1_temp.getZ() << std::endl;
-				//std::cout << "vc term2:\n x: " << vc_term2_temp.getX() << " y: " << vc_term2_temp.getY() << " z: " << vc_term2_temp.getZ() << std::endl;
+				std::cout << "alpha red" << alpha_red << std::endl;
+                std::cout << "pe:\n x: " << pe.getX() << " y: " << pe.getY() << " z: " << pe.getZ() << std::endl;
+				std::cout << "ped:\n x: " << ped.getX() << " y: " << ped.getY() << " z: " << ped.getZ() << std::endl;
+				std::cout << "ev:\n x: " << ev.getX() << " y: " << ev.getY() << " z: " << ev.getZ() << std::endl;
+				std::cout << "phi:\n x: " << phi.getX() << " y: " << phi.getY() << " z: " << phi.getZ() << std::endl;
+				std::cout << "vc term1:\n x: " << vc_term1_temp.getX() << " y: " << vc_term1_temp.getY() << " z: " << vc_term1_temp.getZ() << std::endl;
+				std::cout << "vc term2:\n x: " << vc_term2_temp.getX() << " y: " << vc_term2_temp.getY() << " z: " << vc_term2_temp.getZ() << std::endl;
+                std::cout << "vc:\n x: " << vc.getX() << " y: " << vc.getY() << " z: " << vc.getZ() << std::endl;
 			}
 			
 			if (update_mocap && !std::isnan(zr_star_hatm) && !std::isinf(zr_star_hatm))
