@@ -322,9 +322,6 @@ class ImageProcessing
 		
 		/********** Point Declarations **********/
 		geometry_msgs::Point red_circle_p, green_circle_p, cyan_circle_p, purple_circle_p;// the four points for the circles
-		geometry_msgs::Point red_circle_p_curr, green_circle_p_curr, cyan_circle_p_curr, purple_circle_p_curr;// the four points for the circles currently
-		geometry_msgs::Point red_circle_p_last, green_circle_p_last, cyan_circle_p_last, purple_circle_p_last;// the four points for the circles last time
-		float low_pass_gain = 1;// tuning gain for the low pass
 		bool first_run = false;// boolean to tell if this is the first run
 		homog_track::ImageProcessingMsg pixels_out;//message
 		bool camera_updated = false;
@@ -340,7 +337,7 @@ class ImageProcessing
 		
 		/********** Image Matrix Declarations **********/    
 		cv_bridge::CvImagePtr cv_ptr;// image pointer for the converted images
-		cv::Mat distorted_frame, frame, blur_frame, hsv_frame, r_binary_frame, g_binary_frame, c_binary_frame, p_binary_frame;//frames 
+		cv::Mat distorted_frame, frame, blur_frame, hsv_frame, r_binary_frame, g_binary_frame, c_binary_frame, p_binary_frame, final_contour_frame, edge_frame;//frames 
 		std::vector<cv::Mat> binary_frames{r_binary_frame, g_binary_frame, c_binary_frame, p_binary_frame};// putting the binary frames into a vector
 		cv::Mat A;// camera matrix
 		std::vector<double> dC;// distortion coefficients
@@ -388,6 +385,7 @@ class ImageProcessing
 			// if it fails will through the error
 			try
 			{
+                std::vector< std::vector< std::vector<cv::Point> > > final_contours{r_contours, g_contours, c_contours, p_contours};// getting the final contours into a vector
 				/********** begin processing the image **********/
 				cv_ptr = cv_bridge::toCvCopy(msg, sensor_msgs::image_encodings::BGR8);// converting the image
 				distorted_frame = cv_ptr->image;// getting the frame from the converted image can use clone on image
@@ -476,6 +474,7 @@ class ImageProcessing
 						{
 							final_circles[ii].push_back ( temp_circles[ii][current_index] );// adding the circle to the final circle vector
 							temp_circles[ii].erase( temp_circles[ii].begin() + current_index );// removing the value form the temporary circles
+                            final_contours[ii].push_back(contours[ii][current_index]);// getting the final contours into a vector
 							current_number++;// incrementing the current number
 							current_index = 0;// reset current index
 							current_compare = 0;// reset current compare
@@ -484,121 +483,110 @@ class ImageProcessing
 					}
 					temp_circles[ii].erase(temp_circles[ii].begin(),temp_circles[ii].end());// erasing all the temp circles
 				}		 
-				//std::cout << "number of red circles: " << final_circles[0].size() << std::endl;
-				//std::cout << "number of green circles: " << final_circles[1].size() << std::endl;
-				//std::cout << "number of cyan circles: " << final_circles[2].size() << std::endl;
-				//std::cout << "number of purple circles: " << final_circles[3].size() << std::endl;
-				
+                
+                // check to see if any points on edge of frame
+                edge_frame = cv::Mat::zeros(blur_frame.size(),CV_8UC1);
+                final_contour_frame = cv::Mat::zeros(blur_frame.size(),CV_8UC1);
+                cv::Mat edge_and_mask = cv::Mat::zeros(blur_frame.size(),CV_8UC1);
+                cv::Mat edge_or_mask = cv::Mat::zeros(blur_frame.size(),CV_8UC1);
+                for (int ii = 0; ii < 4; ii++)
+                {
+                    if (!final_contours[ii].empty())
+                    {
+                        cv::drawContours(final_contour_frame, final_contours[ii], -1, cv::Scalar(255), 1);// draw all red contours
+                    }
+                }
+                cv::rectangle(edge_frame, cv::Point(0,0), cv::Point(blur_frame.size())-cv::Point(1,1),cv::Scalar(255),4);
+                cv::bitwise_and(final_contour_frame,edge_frame,edge_and_mask);
+                cv::bitwise_or(final_contour_frame,edge_frame,edge_or_mask);
+                int points_on_edge = cv::countNonZero(edge_and_mask);
+                
+                //std::cout << points_on_edge << " contour points on frame edge" << std::endl;
+                cv::Mat edge_frame_3BGR = cv::Mat::zeros(blur_frame.size(),CV_8UC3);
+                
+                bool empty_circle = false;
+                
+                for (int ii = 0; ii < 4; ii++)
+                {
+                    empty_circle = empty_circle || final_circles[ii].empty();
+                }
+                
 				/********** drawing the circles and the contours **********/
 				// do this four times for all the different color circles
 				// selecting the color of the circle
 				for (int ii = 0; ii < 4; ii++)
 				{
-					// drawing the circles if there is one
-					if (!final_circles[ii].empty())
-					{
-						cv::Scalar* color_con = new cv::Scalar();// color for the drawing
-						// choosing which circle based on ii value
-						switch (ii)
-						{
-							// red
-							case 0:
-								//std::cout << "red found" << std::endl;
-								color_con = new cv::Scalar(0, 0, 255);
-								red_circle_p_curr.x = final_circles[ii][0].x; red_circle_p_curr.y = final_circles[ii][0].y; red_circle_p_curr.z = 1;// assigning the values of the circle to the circle
-								break;
-								
-							// green
-							case 1:
-								//std::cout << "green found" << std::endl;
-								color_con = new cv::Scalar(0, 255, 0);
-								green_circle_p_curr.x = final_circles[ii][0].x; green_circle_p_curr.y = final_circles[ii][0].y; green_circle_p_curr.z = 1;// assigning the values of the circle to the circle
-								break;
-								
-							// cyan
-							case 2:
-								//std::cout << "cyan found" << std::endl;
-								color_con = new cv::Scalar(255, 255, 0);
-								cyan_circle_p_curr.x = final_circles[ii][0].x; cyan_circle_p_curr.y = final_circles[ii][0].y; cyan_circle_p_curr.z = 1;// assigning the values of the circle to the circle
-								break;
-								
-							// purple
-							case 3:
-								//std::cout << "purple found" << std::endl;
-								color_con = new cv::Scalar(255, 0, 255);
-								purple_circle_p_curr.x = final_circles[ii][0].x; purple_circle_p_curr.y = final_circles[ii][0].y; purple_circle_p_curr.z = 1;// assigning the values of the circle to the circle
-								break;
-						}
-						// if it is the first run will just use the value brought in and set up the last value for next time
-						if (first_run)
-						{
-							first_run = false;
-							red_circle_p = red_circle_p_curr; green_circle_p = green_circle_p_curr; cyan_circle_p = cyan_circle_p_curr; purple_circle_p = purple_circle_p_curr; // assigning the values of the circle to the circle
-							red_circle_p_last = red_circle_p; green_circle_p_last = green_circle_p; cyan_circle_p_last = cyan_circle_p; purple_circle_p_last = purple_circle_p;// updating the last
-						}
-						else
-						{
-							// assiging the values as a function of the current and the last
-							red_circle_p.x = low_pass_gain*red_circle_p_curr.x + (1 - low_pass_gain)*red_circle_p_last.x;
-							red_circle_p.y = low_pass_gain*red_circle_p_curr.y + (1 - low_pass_gain)*red_circle_p_last.y;
-							red_circle_p.z = 1;
-							green_circle_p.x = low_pass_gain*green_circle_p_curr.x + (1 - low_pass_gain)*green_circle_p_last.x;
-							green_circle_p.y = low_pass_gain*green_circle_p_curr.y + (1 - low_pass_gain)*green_circle_p_last.y;
-							green_circle_p.z = 1;
-							cyan_circle_p.x = low_pass_gain*cyan_circle_p_curr.x + (1 - low_pass_gain)*cyan_circle_p_last.x;
-							cyan_circle_p.y = low_pass_gain*cyan_circle_p_curr.y + (1 - low_pass_gain)*cyan_circle_p_last.y;
-							cyan_circle_p.z = 1;
-							purple_circle_p.x = low_pass_gain*purple_circle_p_curr.x + (1 - low_pass_gain)*purple_circle_p_last.x;
-							purple_circle_p.y = low_pass_gain*purple_circle_p_curr.y + (1 - low_pass_gain)*purple_circle_p_last.y;
-							purple_circle_p.z = 1;
-
-						}
-						cv::drawContours(blur_frame, contours[ii], -1, *color_con, 1);// draw all the contours
-						cv::circle( blur_frame, cv::Point(final_circles[ii][0].x, final_circles[ii][0].y ),
-									final_circles[ii][0].radius,
-									*color_con, 2 );
-						// printing out the circles values
-						//final_circles[ii][0].printCircle();
-					}
-					// if the circle is missing will make its location -1 to indicate
-					else
-					{
-						// choosing which color to print based on the circle
-						switch (ii)
-						{
-							// red
-							case 0:
-								//std::cout << "red missing" << std::endl;
-								red_circle_p.x = -1; red_circle_p.y = -1; red_circle_p.z = -1;// assigning the values of the circle to the circle
-								break;
-								
-							// green
-							case 1:
-								//std::cout << "green missing" << std::endl;
-								green_circle_p.x = -1; green_circle_p.y = -1; green_circle_p.z = -1;// assigning the values of the circle to the circle
-								break;
-								
-							// cyan
-							case 2:
-								//std::cout << "cyan missing" << std::endl;
-								cyan_circle_p.x = -1; cyan_circle_p.y = -1; cyan_circle_p.z = -1;// assigning the values of the circle to the circle
-								break;
-								
-							// purple
-							case 3:
-								//std::cout << "purple missing" << std::endl;
-								purple_circle_p.x = -1;	purple_circle_p.y = -1;	purple_circle_p.z = -1;// assigning the values of the circle to the circle
-								break;
-						}
-					}
-						
+                    cv::Scalar* color_con = new cv::Scalar();// color for the drawing
+                    // choosing which circle based on ii value
+                    switch (ii)
+                    {
+                        case 0:// red
+                            color_con = new cv::Scalar(0, 0, 255);
+                            break;
+                        case 1:// green
+                            color_con = new cv::Scalar(0, 255, 0);
+                            break;
+                        case 2:// cyan
+                            color_con = new cv::Scalar(255, 255, 0);
+                            break;
+                        case 3:// purple
+                            color_con = new cv::Scalar(255, 0, 255);
+                            break;
+                    }
+                    
+                    if (points_on_edge > 0 || empty_circle)// if circles are not all there or some are on edge will not draw them
+                    {
+                        switch (ii)
+                        {
+                            case 0:// red
+                                red_circle_p.x = -1; red_circle_p.y = -1; red_circle_p.z = -1;// assigning the values of the circle to the circle
+                                break;
+                            case 1:// green
+                                green_circle_p.x = -1; green_circle_p.y = -1; green_circle_p.z = -1;// assigning the values of the circle to the circle
+                                break;
+                            case 2:// cyan
+                                cyan_circle_p.x = -1; cyan_circle_p.y = -1; cyan_circle_p.z = -1;// assigning the values of the circle to the circle
+                                break;
+                            case 3:// purple
+                                purple_circle_p.x = -1;	purple_circle_p.y = -1;	purple_circle_p.z = -1;// assigning the values of the circle to the circle
+                                break;
+                        }
+                        pixels_out.features_found.data = false;
+                    }
+                    else// if circles are all there and none are on edge will draw them
+                    {
+                        switch (ii)
+                        {
+                            case 0:// red
+                                red_circle_p.x = final_circles[ii][0].x; red_circle_p.y = final_circles[ii][0].y; red_circle_p.z = 1;// assigning the values of the circle to the circle
+                                break;
+                            case 1:// green
+                                green_circle_p.x = final_circles[ii][0].x; green_circle_p.y = final_circles[ii][0].y; green_circle_p.z = 1;// assigning the values of the circle to the circle
+                                break;
+                            case 2:// cyan
+                                cyan_circle_p.x = final_circles[ii][0].x; cyan_circle_p.y = final_circles[ii][0].y; cyan_circle_p.z = 1;// assigning the values of the circle to the circle
+                                break;
+                            case 3:// purple
+                                purple_circle_p.x = final_circles[ii][0].x; purple_circle_p.y = final_circles[ii][0].y; purple_circle_p.z = 1;// assigning the values of the circle to the circle
+                                break;
+                        }
+                        pixels_out.features_found.data = true;
+                        cv::circle( blur_frame, cv::Point(final_circles[ii][0].x, final_circles[ii][0].y ), final_circles[ii][0].radius, *color_con, 2 );
+                    }
+                    
+                    if (!contours[ii].empty())// draw all the contours for a given color if they are not empty
+                    {
+                        cv::drawContours(blur_frame, contours[ii], -1, *color_con, 3);
+                    }
 				}
-				
-				// publish the processed image
+
+                // publish the processed image
 				//cv_ptr->image = frame;
+                
+                cv::cvtColor(edge_or_mask,edge_frame_3BGR,CV_GRAY2BGR);
 				cv_ptr->image = blur_frame;
 				image_pub_.publish(cv_ptr->toImageMsg());
-				
+                
 				// giving the circles to the output message
 				pixels_out.header.stamp = msg->header.stamp;
 				pixels_out.pr = red_circle_p; pixels_out.pg = green_circle_p; pixels_out.pc = cyan_circle_p; pixels_out.pp = purple_circle_p;//circles
@@ -758,6 +746,7 @@ class HomogDecomp
 		homog_track::ImageProcessingMsg cam_pixels;// camera pixels for the out message
 		homog_track::ImageProcessingMsg ref_cam_pixels;// reference pixels for the out message
 		bool set_reference = false;
+        bool features_found = false;
 		int right_bumper = 0;
 		int start_button = 0;
 		// constructor for the complete set of markers
@@ -800,11 +789,12 @@ class HomogDecomp
 		void joy_callback(const sensor_msgs::Joy& msg)
 		{
 			start_button = msg.buttons[7];// start button says to set reference image and start controller
-			if (start_button > 0 && cam_pixels.pr.x != -1 && cam_pixels.pg.x != -1 && cam_pixels.pc.x != -1 && cam_pixels.pp.x != -1)
+			if (start_button > 0 && features_found)
 			{
-				ref_pixels.erase(ref_pixels.begin(),ref_pixels.end());
-				ref_points_m.erase(ref_points_m.begin(),ref_points_m.end());
-				pr_ref.setValue(cam_pixels.pr.x,cam_pixels.pr.y,cam_pixels.pr.z);
+				ref_pixels.clear();
+				ref_points_m.clear();
+				
+                pr_ref.setValue(cam_pixels.pr.x,cam_pixels.pr.y,cam_pixels.pr.z);
 				pg_ref.setValue(cam_pixels.pg.x,cam_pixels.pg.y,cam_pixels.pg.z);
 				pc_ref.setValue(cam_pixels.pc.x,cam_pixels.pc.y,cam_pixels.pc.z);
 				pp_ref.setValue(cam_pixels.pp.x,cam_pixels.pp.y,cam_pixels.pp.z);
@@ -847,6 +837,7 @@ class HomogDecomp
 		// callback for the complete message
 		void pixels_callback(const homog_track::ImageProcessingMsg& msg)
 		{
+            features_found = msg.features_found.data;
 			// erasing all the point vectors and matrix vectors
 			pixels.erase(pixels.begin(),pixels.end());
 			curr_points_m.erase(curr_points_m.begin(),curr_points_m.end());
@@ -859,19 +850,6 @@ class HomogDecomp
 			pixels.push_back(cv::Point2d(msg.pg.x,msg.pg.y));//green
 			pixels.push_back(cv::Point2d(msg.pc.x,msg.pc.y));//cyan
 			pixels.push_back(cv::Point2d(msg.pp.x,msg.pp.y));//purple
-			
-			//std::cout << "reference" << std::endl;
-			//for (cv::Point2d ii : ref_pixels)
-			//{
-				//std::cout << ii << std::endl;
-			//}
-			
-			//std::cout << "camera" << std::endl;
-			//for (cv::Point2d ii : pixels)
-			//{
-				//std::cout << ii << std::endl;
-			//}
-			
 			
 			pr_m.at<double>(0,0) = msg.pr.x;
 			pr_m.at<double>(1,0) = msg.pr.y;
@@ -898,7 +876,7 @@ class HomogDecomp
 			alpha_purple = -1;
 			
 			// if any of the points have a -1 will skip over the homography
-			if (msg.pr.x != -1 && msg.pg.x != -1 && msg.pc.x != -1 && msg.pp.x != -1 && set_reference)
+			if (features_found && set_reference)
 			{	
 				//std::cout << "before find homography" << std::endl;
 				try
@@ -1220,10 +1198,12 @@ class Controller
 		tf::Matrix3x3 Kw = tf::Matrix3x3(Kws,0,0,
 										 0,Kws,0,
 										 0,0,Kws);// rotational gain matrix initialize to identity
-		double Kvs = 0.5;
-		tf::Matrix3x3 Kv = tf::Matrix3x3(Kvs,0,0,
-										 0,Kvs,0,
-										 0,0,5*Kvs);// linear velocity gain matrix
+		double Kvx = 0.5;
+        double Kvy = 0.5;
+        double Kvz = 0.5;
+		tf::Matrix3x3 Kv = tf::Matrix3x3(Kvx,0,0,
+										 0,Kvy,0,
+										 0,0,Kvz);// linear velocity gain matrix
 
 		double gamma_1 = 0.0001;// control gains for the z_star_hat_dot calculation
 		double gamma_2 = 10;
@@ -1416,6 +1396,7 @@ class Controller
 		visualization_msgs::Marker vc_marker, wc_marker, vcm_marker, wcm_marker, vcb_marker, wcb_marker, vcbm_marker, wcbm_marker;
 		geometry_msgs::Point vc_marker_start, vc_marker_end, wc_marker_start, wc_marker_end, vcm_marker_start, vcm_marker_end, wcm_marker_start, wcm_marker_end, vcb_marker_start, vcb_marker_end, wcb_marker_start, wcb_marker_end, vcbm_marker_start, vcbm_marker_end, wcbm_marker_start, wcbm_marker_end;
 		
+        
 		Controller(double loop_rate_des, bool write_to_file_des, std::string& output_file_name_des)
 		{	
 			/********** Get parameters **********/
@@ -1423,13 +1404,29 @@ class Controller
 	        nhp.param<double>("gamma_1", gamma_1, 0.0001);
 	        nhp.param<double>("gamma_2", gamma_2, 10.0);
 	        nhp.param<double>("Kws", Kws, 0.8);
-	        nhp.param<double>("Kvs", Kvs, 0.5);
+	        nhp.param<double>("Kvx", Kvx, 0.5);
+            nhp.param<double>("Kvy", Kvy, 0.5);
+            nhp.param<double>("Kvz", Kvz, 0.5);
             nhp.param<double>("integration_window", integration_window, 0.5);
             nhp.param<int>("number_of_samples", number_of_samples, 20);
-            
-			output_file_name = output_file_name_des;
-			//std::cout << "output_file_name: " << output_file_name << std::endl;
-			write_to_file = write_to_file_des;
+            nhp.param<std::string>("output_file_name", output_file_name, output_file_name_des);
+            nhp.param<bool>("write_to_file", write_to_file, write_to_file_des);
+            Kw = tf::Matrix3x3(Kws,0,0,
+                               0,Kws,0,
+                               0,0,Kws);// rotational gain matrix initialize to identity
+            Kv = tf::Matrix3x3(Kvx,0,0,
+                               0,Kvy,0,
+                               0,0,Kvz);// linear velocity gain matrix
+
+            if (write_to_file && (std::remove( output_file_name.c_str() ) != 0))
+            {
+                std::cout << output_file_name +" does not exist" << std::endl;
+            }
+            else
+            {
+                std::cout << output_file_name + " deleted" << std::endl;
+            }
+
 			loop_rate_hz = loop_rate_des;
 			number_of_integrating_samples = loop_rate_hz*integration_window;
 			
@@ -1471,7 +1468,6 @@ class Controller
 			/********** Set transform for body wrt world from mocap and calculated **********/
 			body_wrt_world_mocap.setIdentity();
 			body_wrt_world_calc.setIdentity();
-
 			
 			/******************** Writing headers to file ********************/
 			if (write_to_file)
@@ -1813,14 +1809,16 @@ class Controller
 		/********** callback for the mocap decomp node **********/
 		void mocap_decomp_callback(bool update_track, bool update_mocap)
 		{
+            
 			// get the image wrt body
 			try
 			{
 				tf::StampedTransform camera_wrt_body_temp;
-				listener.waitForTransform("bebop", "bebop_image", ros::Time(0), ros::Duration(0.1));
+				listener.waitForTransform("bebop", "bebop_image", ros::Time(0), ros::Duration(0.01));
 				listener.lookupTransform("bebop", "bebop_image", ros::Time(0), camera_wrt_body_temp);
 				camera_wrt_body = camera_wrt_body_temp;
 				current_timem = camera_wrt_body_temp.stamp_;
+                
 			}
 			catch (tf::TransformException ex)
 			{
@@ -1846,7 +1844,7 @@ class Controller
 					
 					/******** updating the camera_wrt_reference from mocap **********/
 					tf::StampedTransform camera_wrt_reference_calc_temp;
-					listener.waitForTransform("reference_image", "bebop_image", current_timem, ros::Duration(0.1));
+					listener.waitForTransform("reference_image", "bebop_image", current_timem, ros::Duration(0.01));
 					listener.lookupTransform("reference_image", "bebop_image", current_timem, camera_wrt_reference_calc_temp);
 					camera_wrt_reference.setOrigin(camera_wrt_reference_calc_temp.getOrigin());
 					camera_wrt_referencem = camera_wrt_reference_calc_temp;//used for mocap part
@@ -1870,19 +1868,19 @@ class Controller
 					
 					/******** updating the true feature point locations and pixels using the mocap **********/
 					tf::StampedTransform mim_bar_temp;//temp to hold the pixel wrt camera from the mocap for each of the four colors
-					listener.waitForTransform("bebop_image", "red_wrt_world", current_timem, ros::Duration(0.1));
+					listener.waitForTransform("bebop_image", "red_wrt_world", current_timem, ros::Duration(0.01));
 					listener.lookupTransform("bebop_image", "red_wrt_world", current_timem, mim_bar_temp);
 					red_wrt_cameram = mim_bar_temp;//red from mocap
 					mrm_bar = red_wrt_cameram.getOrigin();
-					listener.waitForTransform("bebop_image", "green_wrt_world", current_timem, ros::Duration(0.1));
+					listener.waitForTransform("bebop_image", "green_wrt_world", current_timem, ros::Duration(0.01));
 					listener.lookupTransform("bebop_image", "green_wrt_world", current_timem, mim_bar_temp);
 					green_wrt_cameram = mim_bar_temp;//green from mocap
 					mgm_bar = green_wrt_cameram.getOrigin();
-					listener.waitForTransform("bebop_image", "cyan_wrt_world", current_timem, ros::Duration(0.1));
+					listener.waitForTransform("bebop_image", "cyan_wrt_world", current_timem, ros::Duration(0.01));
 					listener.lookupTransform("bebop_image", "cyan_wrt_world", current_timem, mim_bar_temp);
 					cyan_wrt_cameram = mim_bar_temp;//cyan from mocap
 					mcm_bar = cyan_wrt_cameram.getOrigin();
-					listener.waitForTransform("bebop_image", "purple_wrt_world", current_timem, ros::Duration(0.1));
+					listener.waitForTransform("bebop_image", "purple_wrt_world", current_timem, ros::Duration(0.01));
 					listener.lookupTransform("bebop_image", "purple_wrt_world", current_timem, mim_bar_temp);
 					purple_wrt_cameram = mim_bar_temp;//purple from mocap
 					mpm_bar = purple_wrt_cameram.getOrigin();
@@ -1906,16 +1904,14 @@ class Controller
 						red_wrt_world_calc_tempm.setOrigin(mrm_bar_temp);
 						br.sendTransform(tf::StampedTransform(red_wrt_world_calc_tempm, current_timem, "camera_image_calc", "red_calc_mocap"));
 					}
-					
 					output_velocity_command(update_track, update_mocap);
 				}
 				catch (tf::TransformException ex)
 				{
-					//std::cout << "failed to do transform m" << std::endl;
+					std::cout << "failed to do transform m" << std::endl;
 				}
 				
 			}
-			
 		}
 		
 		/********** callback for the decomp node **********/
@@ -1927,8 +1923,6 @@ class Controller
             bool two_found = false;
 			//std::cout << "entered decomp callback" << std::endl;
 			current_time = msg.header.stamp;
-			
-           
             
 			if (msg.n1[2] != -1 && msg.n2[2] != -1)
 			{
@@ -2111,7 +2105,7 @@ class Controller
 				}
 				catch (tf::TransformException ex)
 				{
-					std::cout << "failed to do transform" << std::endl;
+					//std::cout << "failed to do transform" << std::endl;
 				}
 				
 				//std::cout << "end of decomp callback" << std::endl;
@@ -2500,14 +2494,14 @@ class Controller
 				//tf::Vector3 vc_term2_temp = (1/alpha_red)*(Lv.inverse()*(phi*red_wrt_reference.getOrigin().getZ()));// term 2 for the vc calculation
 				tf::Vector3 vc_term2_temp = (1/alpha_red)*(Lv.inverse()*(phi*zr_star_hat));// term 2 for the vc calculation
 				vc = vc_term1_temp + vc_term2_temp;// sum them together for vc
-				std::cout << "alpha red" << alpha_red << std::endl;
-                std::cout << "pe:\n x: " << pe.getX() << " y: " << pe.getY() << " z: " << pe.getZ() << std::endl;
-				std::cout << "ped:\n x: " << ped.getX() << " y: " << ped.getY() << " z: " << ped.getZ() << std::endl;
-				std::cout << "ev:\n x: " << ev.getX() << " y: " << ev.getY() << " z: " << ev.getZ() << std::endl;
-				std::cout << "phi:\n x: " << phi.getX() << " y: " << phi.getY() << " z: " << phi.getZ() << std::endl;
-				std::cout << "vc term1:\n x: " << vc_term1_temp.getX() << " y: " << vc_term1_temp.getY() << " z: " << vc_term1_temp.getZ() << std::endl;
-				std::cout << "vc term2:\n x: " << vc_term2_temp.getX() << " y: " << vc_term2_temp.getY() << " z: " << vc_term2_temp.getZ() << std::endl;
-                std::cout << "vc:\n x: " << vc.getX() << " y: " << vc.getY() << " z: " << vc.getZ() << std::endl;
+				//std::cout << "alpha red" << alpha_red << std::endl;
+                //std::cout << "pe:\n x: " << pe.getX() << " y: " << pe.getY() << " z: " << pe.getZ() << std::endl;
+				//std::cout << "ped:\n x: " << ped.getX() << " y: " << ped.getY() << " z: " << ped.getZ() << std::endl;
+				//std::cout << "ev:\n x: " << ev.getX() << " y: " << ev.getY() << " z: " << ev.getZ() << std::endl;
+				//std::cout << "phi:\n x: " << phi.getX() << " y: " << phi.getY() << " z: " << phi.getZ() << std::endl;
+				//std::cout << "vc term1:\n x: " << vc_term1_temp.getX() << " y: " << vc_term1_temp.getY() << " z: " << vc_term1_temp.getZ() << std::endl;
+				//std::cout << "vc term2:\n x: " << vc_term2_temp.getX() << " y: " << vc_term2_temp.getY() << " z: " << vc_term2_temp.getZ() << std::endl;
+                //std::cout << "vc:\n x: " << vc.getX() << " y: " << vc.getY() << " z: " << vc.getZ() << std::endl;
 			}
 			
 			if (update_mocap && !std::isnan(zr_star_hatm) && !std::isinf(zr_star_hatm))
@@ -2517,7 +2511,7 @@ class Controller
 				//tf::Vector3 vc_term2_tempm = (1/alpha_redm)*(Lvm.inverse()*(phim*red_wrt_reference.getOrigin().getZ()));// term 2 for the vc calculation
 				tf::Vector3 vc_term2_tempm = (1/alpha_redm)*(Lvm.inverse()*(phim*zr_star_hatm));// term 2 for the vc calculation
 				vcm = vc_term1_tempm + vc_term2_tempm;// sum them together for vc
-				//std::cout << "\n1/alpham: " << (1/alpha_redm) << std::endl;
+				//std::cout << "\nalpham: " << alpha_redm << std::endl;
 				//std::cout << "\nzr_star_hatm: " << zr_star_hatm << std::endl;
 				//std::cout << "Lvm inverse:"
 					  //<< "\n row 0:"
@@ -2539,6 +2533,7 @@ class Controller
 				//std::cout << "phim:\n x: " << phim.getX() << " y: " << phim.getY() << " z: " << phim.getZ() << std::endl;
 				//std::cout << "vcm term1:\n x: " << vc_term1_tempm.getX() << " y: " << vc_term1_tempm.getY() << " z: " << vc_term1_tempm.getZ() << std::endl;
 				//std::cout << "vcm term2:\n x: " << vc_term2_tempm.getX() << " y: " << vc_term2_tempm.getY() << " z: " << vc_term2_tempm.getZ() << std::endl;
+                //std::cout << "vcm:\n x: " << vcm.getX() << " y: " << vcm.getY() << " z: " << vcm.getZ() << std::endl;
 			}
 		}
 		
@@ -2676,37 +2671,30 @@ class Controller
 			calculate_zr_star_hat_dot(update_track, update_mocap);// calculate zr_star_hat_dot
 			if (!std::isnan(zr_star_hat_dot) && (!std::isnan(vc.getX()) && !std::isnan(vc.getY()) && !std::isnan(wc.getZ())) && !std::isnan(zr_star_hat) && !std::isinf(zr_star_hat))
 			{
-				if (update_track)
-				{
-					double time_from_last = current_time.toSec() - last_time.toSec();
-					//std::cout << "time from last: " << time_from_last << std::endl;
-					//std::cout << "time from start: " << current_time.toSec() - start_time.toSec() << std::endl;
-					
-					// from tracking
-					zr_star_hat += zr_star_hat_dot*time_from_last;
-					//std::cout << "\n\nzr star hat dot: " << zr_star_hat_dot << std::endl;
-					//std::cout << "zr star hat: " << zr_star_hat << std::endl;
-					z_tilde.data = red_wrt_reference.getOrigin().getZ() - zr_star_hat;
-                    std_msgs::Float64 z_tilde_temp; z_tilde_temp.data = z_tilde.data/red_wrt_reference.getOrigin().getZ();
-					z_tilde_pub.publish(z_tilde_temp);
-				}
+				double time_from_last = current_time.toSec() - last_time.toSec();
+                //std::cout << "time from last: " << time_from_last << std::endl;
+                //std::cout << "time from start: " << current_time.toSec() - start_time.toSec() << std::endl;
+                
+                // from tracking
+                zr_star_hat += zr_star_hat_dot*time_from_last;
+                //std::cout << "\n\nzr star hat dot: " << zr_star_hat_dot << std::endl;
+                //std::cout << "zr star hat: " << zr_star_hat << std::endl;
+                z_tilde.data = red_wrt_reference.getOrigin().getZ() - zr_star_hat;
+                std_msgs::Float64 z_tilde_temp; z_tilde_temp.data = z_tilde.data/red_wrt_reference.getOrigin().getZ();
+                z_tilde_pub.publish(z_tilde_temp);
 			}
 			
 			if (!std::isnan(zr_star_hat_dotm) && (!std::isnan(vcm.getX()) && !std::isnan(vcm.getY()) && !std::isnan(wcm.getZ())) && !std::isnan(zr_star_hatm) && !std::isinf(zr_star_hatm))
 			{
-				if (update_mocap)
-				{
-					double time_from_lastm = current_timem.toSec() - last_timem.toSec();
-					// from mocap
-					zr_star_hatm += zr_star_hat_dotm*time_from_lastm;
-					//std::cout << "\n\n\n\n\n$$$$$$$$zr star hat dot mocap: " << zr_star_hat_dotm << "$$$$$$$$$$$$$$\n\n\n\n\n\n" << std::endl;
-					//std::cout << "zr star hat mocap: " << zr_star_hatm << std::endl;
-					z_tildem.data = red_wrt_reference.getOrigin().getZ() - zr_star_hatm;
-					std_msgs::Float64 z_tilde_tempm; z_tilde_tempm.data = z_tildem.data/red_wrt_reference.getOrigin().getZ();
-                    z_tildem_pub.publish(z_tilde_tempm);
-				}
+				double time_from_lastm = current_timem.toSec() - last_timem.toSec();
+                // from mocap
+                zr_star_hatm += zr_star_hat_dotm*time_from_lastm;
+                //std::cout << "zr star hat dot mocap: " << zr_star_hat_dotm << std::endl;
+                //std::cout << "zr star hat mocap: " << zr_star_hatm << std::endl;
+                z_tildem.data = red_wrt_reference.getOrigin().getZ() - zr_star_hatm;
+                std_msgs::Float64 z_tilde_tempm; z_tilde_tempm.data = z_tildem.data/red_wrt_reference.getOrigin().getZ();
+                z_tildem_pub.publish(z_tilde_tempm);
 			}
-			
 			// reference
 			//std::cout << "\n\nzr star hat: " << zr_star_hat << std::endl;
 			//std::cout << "zr star hatm: " << zr_star_hatm << std::endl;
@@ -2718,6 +2706,7 @@ class Controller
 		{
 			double time_from_begin = current_time.toSec() - start_time.toSec();
 			double time_from_beginm = current_timem.toSec() - start_timem.toSec();
+            //std::cout << "elapsed time mocap: " << time_from_beginm << std::endl;
 			
 			if (update_track)
 			{
@@ -2743,35 +2732,35 @@ class Controller
 				min_svd_msg.data = *curr_Ev_minus_Phi_svd_min_iter;
 				min_svd_pub.publish(min_svd_msg);
 				
-				if (time_from_begin > integration_window && start_record_stack_data)
+                // if the current norm is greater than the minimum norm of the history will remove the old min and add the new one to the end
+				if (time_from_begin > integration_window && start_record_stack_data && Ev_minus_Phi_svd > *curr_Ev_minus_Phi_svd_min_iter)
 				{
-					// from tracking
-					// if the current norm is greater than the minimum norm of the history will remove the old min and add the new one to the end
-					if ( Ev_minus_Phi_svd > *curr_Ev_minus_Phi_svd_min_iter )
-					{
 						// replace the previous min from the history
 						Evs_minus_Phis.at(curr_Ev_minus_Phi_svd_min_index) = Ev_minus_Phi;
 						Evs_minus_Phis_svds.at(curr_Ev_minus_Phi_svd_min_index) = Ev_minus_Phi_svd;
 						Us.at(curr_Ev_minus_Phi_svd_min_index) = U;
-					}
-					// getting the summation
-					zr_star_hat_dot_sum = 0;
-					tf::Vector3 zr_star_hat_dot_term2_temp = tf::Vector3(0,0,0);
-					for (int ii = 0; ii < Evs_minus_Phis.size(); ii++)
-					{
-						zr_star_hat_dot_term2_temp = -(Evs_minus_Phis.at(ii)*zr_star_hat) - Us.at(ii);
-						zr_star_hat_dot_sum += (Evs_minus_Phis.at(ii)).dot(zr_star_hat_dot_term2_temp);
-					}
 				}
-				else
-				{
-					zr_star_hat_dot_sum = 0;
-				}
-				
-				// from tracking
-				zr_star_hat_dot = gamma_1*ev.dot(phi) + gamma_1*gamma_2*zr_star_hat_dot_sum;
-				//zr_star_hat_dot = gamma_1*gamma_2*zr_star_hat_dot_sum;
 			}
+            // update zr star hat dot
+            if (time_from_begin > integration_window && start_record_stack_data&& !std::isnan(zr_star_hat) && !std::isinf(zr_star_hat))
+            {
+                // getting the summation
+                zr_star_hat_dot_sum = 0;
+                tf::Vector3 zr_star_hat_dot_term2_temp = tf::Vector3(0,0,0);
+                for (int ii = 0; ii < Evs_minus_Phis.size(); ii++)
+                {
+                    zr_star_hat_dot_term2_temp = -(Evs_minus_Phis.at(ii)*zr_star_hat) - Us.at(ii);
+                    zr_star_hat_dot_sum += (Evs_minus_Phis.at(ii)).dot(zr_star_hat_dot_term2_temp);
+                }
+            }
+            else
+            {
+                zr_star_hat_dot_sum = 0;
+            }
+            
+            // from tracking
+            zr_star_hat_dot = gamma_1*ev.dot(phi) + gamma_1*gamma_2*zr_star_hat_dot_sum;
+            //zr_star_hat_dot = gamma_1*gamma_2*zr_star_hat_dot_sum;
 			
 			if (update_mocap && !std::isnan(zr_star_hatm) && !std::isinf(zr_star_hatm))
 			{
@@ -3174,19 +3163,11 @@ int main(int argc, char** argv)
 	ros::init(argc,argv,"experiment_node");
 
 	double loop_rate_hz = 30;
-	double mocap_loop_rate_hz = 30;
+	double mocap_loop_rate_hz = 100;
 	bool write_to_file = true;
 	bool use_simulator = false;
 	
-	std::string filename = "/home/ncr/ncr_ws/src/homog_track/testing_files/experiment_15.txt";
-	if( (std::remove( filename.c_str() ) != 0) && write_to_file)
-	{
-		std::cout << "file does not exist" << std::endl;
-	}
-	else
-	{
-		std::cout << "file deleted" << std::endl;
-	}
+	std::string filename = "/home/ncr/ncr_ws/src/homog_track/testing_files/experiment___.txt";
 	std::cout << "hi" << std::endl;
 	
 	Simulator simulator_(mocap_loop_rate_hz, use_simulator);
@@ -3198,14 +3179,26 @@ int main(int argc, char** argv)
 	
 	while (ros::ok())
 	{
+        double test_start = ros::Time::now().toSec();
+        
 		if (use_simulator)
 		{
 			simulator_.update_camera_pixels();
 		}
 		
-		controller.update_desired_pixels();
-		controller.mocap_decomp_callback(controller.new_decomp_recieved, true);
-		if (controller.new_decomp_recieved)
+        
+		
+        controller.update_desired_pixels();
+		
+       
+        
+        //controller.mocap_decomp_callback(controller.new_decomp_recieved, true);
+        controller.mocap_decomp_callback(false, true);
+		
+         
+        
+        //if (controller.new_decomp_recieved)
+        if (false)
 		{
             controller.vc_marker_pub.publish(controller.vc_marker);
             controller.wc_marker_pub.publish(controller.wc_marker);
@@ -3221,8 +3214,12 @@ int main(int argc, char** argv)
 		controller.vcbm_marker_pub.publish(controller.vcbm_marker);
 		controller.wcbm_marker_pub.publish(controller.wcbm_marker);
 		
+        
 		ros::spinOnce();
 		loop_rate.sleep();
+        
+        double test_end = ros::Time::now().toSec();
+        std::cout << "\n\ntest freq: " << 1.0/(test_end - test_start) << std::endl;
 	}
 	//ros::spin();
 
